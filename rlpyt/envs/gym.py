@@ -6,6 +6,7 @@ from gym.wrappers.time_limit import TimeLimit
 from collections import namedtuple
 
 from rlpyt.envs.base import EnvSpaces, EnvStep
+from rlpyt.envs.grid import Grid
 from rlpyt.spaces.gym_wrapper import GymSpaceWrapper
 from rlpyt.utils.collections import is_namedtuple_class
 
@@ -170,3 +171,6 @@ def make(*args, info_example=None, **kwargs):
     else:
         return GymEnvWrapper(EnvInfoWrapper(
             gym.make(*args, **kwargs), info_example))
+
+def make_grid(*args, **kwargs):
+    return GymEnvWrapper(Grid(*args, **kwargs))
