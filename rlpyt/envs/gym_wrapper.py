@@ -7,6 +7,7 @@ from collections import namedtuple
 
 from rlpyt.envs.base import EnvSpaces, EnvStep
 from rlpyt.envs.grid import Grid
+from rlpyt.envs.relmogen import RelMoGenEnv
 from rlpyt.spaces.gym_wrapper import GymSpaceWrapper
 from rlpyt.utils.collections import is_namedtuple_class
 
@@ -174,3 +175,6 @@ def make(*args, info_example=None, **kwargs):
 
 def make_grid(*args, **kwargs):
     return GymEnvWrapper(Grid(*args, **kwargs))
+
+def make_relmogen(*args, **kwargs):
+    return GymEnvWrapper(RelMoGenEnv(*args, **kwargs))
