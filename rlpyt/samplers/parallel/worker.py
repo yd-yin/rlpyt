@@ -80,10 +80,14 @@ def sampling_process(common_kwargs, worker_kwargs):
         )
     else:
         eval_envs = list()
-
+    print('cpu', w.cpus)
+    print('worker waiting!!!!!!!!!!!!')
+    print('-' * 20)
     ctrl = c.ctrl
     ctrl.barrier_out.wait()
+    print('before while True')
     while True:
+        print('while loop')
         collector.reset_if_needed(agent_inputs)  # Outside barrier?
         ctrl.barrier_in.wait()
         if ctrl.quit.value:

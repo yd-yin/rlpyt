@@ -34,7 +34,7 @@ class DQN(RlAlgorithm):
             replay_size=int(1e6),
             replay_ratio=8,  # data_consumption / data_generation.
             target_update_tau=1,
-            target_update_interval=312,  # 312 * 32 = 1e4 env steps.
+            target_update_interval=2500,  # 2500 * (batch_size=32 / replay_ratio=8) = 1e4 env steps.
             n_step_return=1,
             learning_rate=2.5e-4,
             OptimCls=torch.optim.Adam,

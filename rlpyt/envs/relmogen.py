@@ -59,8 +59,8 @@ class RelMoGenEnv(NavigateEnv):
         self.downsize_ratio = downsize_ratio
         self.load_scene()
         self.load_observation_action_spaces()
-        cv2.namedWindow('rgb')
-        cv2.namedWindow('depth')
+        # cv2.namedWindow('rgb')
+        # cv2.namedWindow('depth')
 
     def load_scene(self):
         interactive_objs = []
@@ -131,15 +131,18 @@ class RelMoGenEnv(NavigateEnv):
         state = np.concatenate((rgb, depth), axis=2)
         state = np.transpose(state, (2, 0, 1))
         
-        rgb = self.simulator.renderer.render_robot_cameras(modes=('rgb'))[0][:, :, :3]
-        rgb = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-        depth = -self.simulator.renderer.render_robot_cameras(modes=('3d'))[0][:, :, 2:3]
-        depth = np.clip(depth / 5.0, 0.0, 1.0)
-        cv2.imshow('rgb', rgb)
-        cv2.imshow('depth', depth)
+        # rgb = self.simulator.renderer.render_robot_cameras(modes=('rgb'))[0][:, :, :3]
+        # rgb = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        # depth = -self.simulator.renderer.render_robot_cameras(modes=('3d'))[0][:, :, 2:3]
+        # depth = np.clip(depth / 5.0, 0.0, 1.0)
+        # cv2.imshow('rgb', rgb)
+        # cv2.imshow('depth', depth)
         return state
 
     def step(self, action):
+        print('step:', self.current_step)
+        total_start = time.time()
+        # start = time.time()
         assert 0 <= action < self.image_height_downsized * self.image_width_downsized
 
         self.current_step += 1
@@ -154,8 +157,14 @@ class RelMoGenEnv(NavigateEnv):
         position_world = np.linalg.inv(
             self.simulator.renderer.V).dot(position_cam)
         position_eye = self.robots[0].eyes.get_position()
+
+        # print('get point:', time.time() - start)
+        # start = time.time()
+
         object_id, link_id, _, hit_pos, hit_normal = p.rayTest(
             position_eye, position_world[:3] + position_world[:3] - position_eye)[0]
+        # print('ray trace:', time.time() - start)
+        # start = time.time()
 
         if self.mode == 'gui':
             if self.debug_line_id is not None:
@@ -178,17 +187,25 @@ class RelMoGenEnv(NavigateEnv):
                     object_id, link_id, -np.array(hit_normal) * 1000, hit_pos, p.WORLD_FRAME)
             self.simulator_step()
         self.simulator.sync()
+        # print('apply force:', valid_force, time.time() - start)
+        # start = time.time()
 
         # if valid_force:
         #     print('AFTER', self.get_potential())
 
         state = self.get_state()
+
+        # print('get state:', time.time() - start)
+        # start = time.time()
+        
         reward = self.get_reward()
+
+        # print('get reward:', time.time() - start)
+        # start = time.time()
+
         done = self.current_step >= self.max_step
         info = {}
-
-        time.sleep(0.5)
-
+        print('total:', time.time() - total_start)
         return state, reward, done, info
 
     def reset_agent(self):
@@ -226,14 +243,15 @@ class RelMoGenEnv(NavigateEnv):
         return potential
 
     def reset(self):
-        print('reset', '-' * 20)
         self.reset_interactive_objects()
         state = super().reset()
         self.potential = self.get_potential()
         self.simulator_step()
         self.simulator.sync()
-        embed()
         return state
+    
+    def close(self):
+        self.clean()
 
 
 if __name__ == '__main__':

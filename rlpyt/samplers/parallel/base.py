@@ -92,6 +92,8 @@ class ParallelSamplerBase(BaseSampler):
         self.workers = [mp.Process(target=target,
             kwargs=dict(common_kwargs=common_kwargs, worker_kwargs=w_kwargs))
             for w_kwargs in workers_kwargs]
+        from IPython import embed
+        embed()
         for w in self.workers:
             w.start()
 
