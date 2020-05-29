@@ -39,7 +39,7 @@ max_collisions_allowed: 500
 goal_format: polar
 
 # sensor spec
-output: [rgb, depth]
+output: [rgb, depth, scan]
 # image
 # Primesense Carmine 1.09 short-range RGBD sensor
 # http://xtionprolive.com/primesense-carmine-1.09

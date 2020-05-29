@@ -122,15 +122,43 @@ class RelMoGenEnv(NavigateEnv):
         self.image_height_downsized = self.image_height // self.downsize_ratio
         self.image_width_downsized = self.image_width // self.downsize_ratio
         self.action_space = gym.spaces.Discrete(
-            self.image_height_downsized * self.image_width_downsized)
+            self.image_height_downsized * self.image_width_downsized * 2)
+
+    def get_occupancy_map(self):
+        laser_angular_half_range = self.laser_angular_range / 2.0
+        angle = np.arange(-laser_angular_half_range / 180 * np.pi,
+                                            laser_angular_half_range / 180 * np.pi,
+                                            self.laser_angular_range / 180.0 * np.pi / self.n_horizontal_rays)
+        hit_fraction = self.get_scan()
+        x = self.laser_linear_range * hit_fraction[:,0] * np.sin(angle)
+        y = self.laser_linear_range * hit_fraction[:,0] * np.cos(angle)
+        y = -y
+
+        x = np.concatenate([[0],x,[0]])
+        y = np.concatenate([[0],y,[0]])
+
+        self.occ_map_size = 256
+        img = np.zeros((self.occ_map_size, self.occ_map_size), np.uint8)
+        self.occ_map_crop_range = 8
+        pts = []
+        for i in range(len(x)):
+            pts.append([(int(x[i]+self.occ_map_crop_range/2) * self.occ_map_size / self.occ_map_crop_range) ,
+                            int((y[i] + self.occ_map_crop_range/2) * self.occ_map_size / self.occ_map_crop_range)])
+        pts = np.array(pts, np.int32)
+        pts = pts.reshape((1,-1,1,2))
+        cv2.fillPoly(img,pts,True,1)
+
+        return img.astype(np.float32)
+
 
     def get_state(self):
-        state = super().get_state()
-        rgb = state['rgb']
-        depth = state['depth']
-        state = np.concatenate((rgb, depth), axis=2)
-        state = np.transpose(state, (2, 0, 1))
-        
+        rgb = self.get_rgb()
+        depth = self.get_depth()
+        rgbd = np.concatenate((rgb, depth), axis=2)
+        rgbd = np.transpose(rgbd, (2, 0, 1))
+        state = {}
+        state['rgbd'] = rgbd
+        state['occupancy_map'] = self.get_occupancy_map()
         # rgb = self.simulator.renderer.render_robot_cameras(modes=('rgb'))[0][:, :, :3]
         # rgb = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         # depth = -self.simulator.renderer.render_robot_cameras(modes=('3d'))[0][:, :, 2:3]
@@ -139,65 +167,92 @@ class RelMoGenEnv(NavigateEnv):
         # cv2.imshow('depth', depth)
         return state
 
+    def occ_rc_to_world_xy(self, occ_rc):
+        occ_row, occ_col = occ_rc
+        x = -(occ_row / self.occ_map_size - 0.5)  * self.occ_map_crop_range
+        y = -(occ_col / self.occ_map_size - 0.5)  * self.occ_map_crop_range
+        return [x,y]
+
+    def global_to_local(self, pos, cur_pos, cur_rot):
+        return rotate_vector_3d(pos - cur_pos, *cur_rot)
+    
+    def local_to_global(self, pos, cur_pos, cur_rot):
+        return rotate_vector_3d(pos, -cur_rot[0], -cur_rot[1], -cur_rot[2]) + cur_pos
+    
     def step(self, action):
         print('step:', self.current_step)
         total_start = time.time()
         # start = time.time()
-        assert 0 <= action < self.image_height_downsized * self.image_width_downsized
+        assert 0 <= action < self.image_height_downsized * self.image_width_downsized * 2
 
         self.current_step += 1
 
-        row = action // self.image_width_downsized
-        col = action % self.image_width_downsized
+        if action < self.image_height_downsized * self.image_width_downsized: # base action
+            row = action // self.image_width_downsized
+            col = action % self.image_width_downsized
+            image_row = int((row + 0.5) * self.downsize_ratio)
+            image_col = int((col + 0.5) * self.downsize_ratio)
+            robot_frame_xy = self.occ_rc_to_world_xy([image_row, image_col])
+            print(image_row, image_col)
+            print(robot_frame_xy)
+            # reset base position
 
-        image_3d = self.simulator.renderer.render_robot_cameras(modes=('3d'))[0]
-        image_row = int((row + 0.5) * self.downsize_ratio)
-        image_col = int((col + 0.5) * self.downsize_ratio)
-        position_cam = image_3d[image_row, image_col]
-        position_world = np.linalg.inv(
-            self.simulator.renderer.V).dot(position_cam)
-        position_eye = self.robots[0].eyes.get_position()
+        else: # arm action
 
-        # print('get point:', time.time() - start)
-        # start = time.time()
+            row = (action - self.image_height_downsized * self.image_width_downsized) // self.image_width_downsized
+            col = (action - self.image_height_downsized * self.image_width_downsized) % self.image_width_downsized
 
-        object_id, link_id, _, hit_pos, hit_normal = p.rayTest(
-            position_eye, position_world[:3] + position_world[:3] - position_eye)[0]
-        # print('ray trace:', time.time() - start)
-        # start = time.time()
+            image_3d = self.simulator.renderer.render_robot_cameras(modes=('3d'))[0]
+            image_row = int((row + 0.5) * self.downsize_ratio)
+            image_col = int((col + 0.5) * self.downsize_ratio)
+            position_cam = image_3d[image_row, image_col]
+            position_world = np.linalg.inv(
+                self.simulator.renderer.V).dot(position_cam)
+            position_eye = self.robots[0].eyes.get_position()
 
-        if self.mode == 'gui':
-            if self.debug_line_id is not None:
-                self.debug_line_id = p.addUserDebugLine(
-                    position_eye, position_world[:3], lineWidth=3, replaceItemUniqueId=self.debug_line_id)
-            else:
-                self.debug_line_id = p.addUserDebugLine(
-                    position_eye, position_world[:3], lineWidth=3)
+            # print('get point:', time.time() - start)
+            # start = time.time()
 
-        valid_force = (object_id, link_id) in self.interactive_objs_joints
+            object_id, link_id, _, hit_pos, hit_normal = p.rayTest(
+                position_eye, position_world[:3] + position_world[:3] - position_eye)[0]
+            # print('ray trace:', time.time() - start)
+            # start = time.time()
 
-        # if valid_force:
-        #     self.hit += 1
-        #     print('VALID', (object_id, link_id))
-        #     print('BEFORE', self.get_potential())
+            if self.mode == 'gui':
+                if self.debug_line_id is not None:
+                    self.debug_line_id = p.addUserDebugLine(
+                        position_eye, position_world[:3], lineWidth=3, replaceItemUniqueId=self.debug_line_id)
+                else:
+                    self.debug_line_id = p.addUserDebugLine(
+                        position_eye, position_world[:3], lineWidth=3)
 
-        for _ in range(self.simulator_loop):
-            if valid_force:
-                p.applyExternalForce(
-                    object_id, link_id, -np.array(hit_normal) * 1000, hit_pos, p.WORLD_FRAME)
-            self.simulator_step()
-        self.simulator.sync()
-        # print('apply force:', valid_force, time.time() - start)
-        # start = time.time()
+            valid_force = (object_id, link_id) in self.interactive_objs_joints
 
-        # if valid_force:
-        #     print('AFTER', self.get_potential())
+            # if valid_force:
+            #     self.hit += 1
+            #     print('VALID', (object_id, link_id))
+            #     print('BEFORE', self.get_potential())
+
+            for _ in range(self.simulator_loop):
+                if valid_force:
+                    p.applyExternalForce(
+                        object_id, link_id, -np.array(hit_normal) * 1000, hit_pos, p.WORLD_FRAME)
+                self.simulator_step()
+            self.simulator.sync()
+            # print('apply force:', valid_force, time.time() - start)
+            # start = time.time()
+
+            # if valid_force:
+            #     print('AFTER', self.get_potential())
+
+
+
 
         state = self.get_state()
 
         # print('get state:', time.time() - start)
         # start = time.time()
-        
+
         reward = self.get_reward()
 
         # print('get reward:', time.time() - start)
@@ -249,7 +304,7 @@ class RelMoGenEnv(NavigateEnv):
         self.simulator_step()
         self.simulator.sync()
         return state
-    
+
     def close(self):
         self.clean()
 
