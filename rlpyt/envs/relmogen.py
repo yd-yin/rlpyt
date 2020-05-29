@@ -22,7 +22,8 @@ from transforms3d.euler import euler2quat
 from gibson2.external.pybullet_tools.utils import set_base_values, joint_from_name, set_joint_position, \
     set_joint_positions, add_data_path, connect, plan_base_motion, plan_joint_motion, enable_gravity, \
     joint_controller, dump_body, load_model, joints_from_names, user_input, disconnect, get_joint_positions, \
-    get_link_pose, link_from_name, HideOutput, get_pose, wait_for_user, dump_world, plan_nonholonomic_motion, set_point, create_box, stable_z, control_joints
+    get_link_pose, link_from_name, HideOutput, get_pose, wait_for_user, dump_world, plan_nonholonomic_motion, \
+    set_point, create_box, stable_z, control_joints, set_base_values_with_z
 
 
 class RelMoGenEnv(NavigateEnv):
@@ -175,10 +176,10 @@ class RelMoGenEnv(NavigateEnv):
 
     def global_to_local(self, pos, cur_pos, cur_rot):
         return rotate_vector_3d(pos - cur_pos, *cur_rot)
-    
+
     def local_to_global(self, pos, cur_pos, cur_rot):
         return rotate_vector_3d(pos, -cur_rot[0], -cur_rot[1], -cur_rot[2]) + cur_pos
-    
+
     def step(self, action):
         print('step:', self.current_step)
         total_start = time.time()
@@ -190,11 +191,20 @@ class RelMoGenEnv(NavigateEnv):
         if action < self.image_height_downsized * self.image_width_downsized: # base action
             row = action // self.image_width_downsized
             col = action % self.image_width_downsized
+
             image_row = int((row + 0.5) * self.downsize_ratio)
             image_col = int((col + 0.5) * self.downsize_ratio)
             robot_frame_xy = self.occ_rc_to_world_xy([image_row, image_col])
-            print(image_row, image_col)
-            print(robot_frame_xy)
+            #print(image_row, image_col)
+            #print(robot_frame_xy)
+            cur_rot = self.robots[0].get_rpy()
+            cur_pos = self.robots[0].get_position()
+            world_frame_base_position = self.local_to_global(np.array([robot_frame_xy[0], robot_frame_xy[1], 0]), cur_pos, cur_rot)
+            set_base_values_with_z(self.robots[0].robot_ids[0], [world_frame_base_position[0], world_frame_base_position[1], np.pi],
+                                           z=0)
+
+            # always facing the cabinets
+
             # reset base position
 
         else: # arm action
