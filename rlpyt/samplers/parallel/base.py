@@ -2,6 +2,7 @@
 import multiprocessing as mp
 import ctypes
 import time
+import dill
 
 from rlpyt.samplers.base import BaseSampler
 from rlpyt.samplers.buffer import build_samples_buffer
@@ -12,7 +13,8 @@ from rlpyt.utils.synchronize import drain_queue
 
 
 EVAL_TRAJ_CHECK = 0.1  # seconds.
-
+RELMOGEN_SPACES_PICKLE = '/cvgl2/u/chengshu/rlpyt/rlpyt/envs/relmogen_spaces.pickle'
+RELMOGEN_EXAMPLES_PICKLE = '/cvgl2/u/chengshu/rlpyt/rlpyt/envs/relmogen_examples.pickle'
 
 class ParallelSamplerBase(BaseSampler):
     """Base class for samplers which use worker processes to run environment
@@ -72,12 +74,29 @@ class ParallelSamplerBase(BaseSampler):
             logger.log(f"Total parallel evaluation envs: {eval_n_envs}.")
             self.eval_max_T = eval_max_T = int(self.eval_max_steps // eval_n_envs)
 
-        env = self.EnvCls(**self.env_kwargs)
-        self._agent_init(agent, env, global_B=global_B,
-            env_ranks=env_ranks)
-        examples = self._build_buffers(env, bootstrap_value)
-        env.close()
-        del env
+        # Save env specs
+        # env = self.EnvCls(**self.env_kwargs)
+        # self._agent_init(agent, env, global_B=global_B, env_ranks=env_ranks)
+        # examples = self._build_buffers(env, bootstrap_value)
+        # with open(RELMOGEN_SPACES_PICKLE, 'wb') as f:
+        #     dill.dump(env.spaces, f)
+        # examples_dict = {}
+        # for key in examples:
+        #     examples_dict[key] = examples[key]
+        # with open(RELMOGEN_EXAMPLES_PICKLE, 'wb') as f:
+        #     dill.dump(examples_dict, f)
+        # env.close()
+        # del env
+        # assert False
+
+        # Load env specs
+        env = None
+        with open(RELMOGEN_SPACES_PICKLE, 'rb') as f:
+            env_spaces = dill.load(f)
+        with open(RELMOGEN_EXAMPLES_PICKLE, 'rb') as f:
+            examples = dill.load(f)
+        self._agent_init(agent, env, global_B=global_B, env_ranks=env_ranks, env_spaces=env_spaces)
+        examples = self._build_buffers(env, bootstrap_value, examples=examples)
 
         self._build_parallel_ctrl(n_worker)
 
@@ -92,8 +111,7 @@ class ParallelSamplerBase(BaseSampler):
         self.workers = [mp.Process(target=target,
             kwargs=dict(common_kwargs=common_kwargs, worker_kwargs=w_kwargs))
             for w_kwargs in workers_kwargs]
-        from IPython import embed
-        embed()
+
         for w in self.workers:
             w.start()
 
@@ -173,15 +191,17 @@ class ParallelSamplerBase(BaseSampler):
                 n_envs_list[b] += 1
         return n_envs_list
 
-    def _agent_init(self, agent, env, global_B=1, env_ranks=None):
-        agent.initialize(env.spaces, share_memory=True,
+    def _agent_init(self, agent, env, global_B=1, env_ranks=None, env_spaces=None):
+        if env_spaces is None:
+            env_spaces = env.spaces
+        agent.initialize(env_spaces, share_memory=True,
             global_B=global_B, env_ranks=env_ranks)
         self.agent = agent
 
-    def _build_buffers(self, env, bootstrap_value):
+    def _build_buffers(self, env, bootstrap_value, examples=None):
         self.samples_pyt, self.samples_np, examples = build_samples_buffer(
             self.agent, env, self.batch_spec, bootstrap_value,
-            agent_shared=True, env_shared=True, subprocess=True)
+            agent_shared=True, env_shared=True, subprocess=True, examples=examples)
         return examples
 
     def _build_parallel_ctrl(self, n_worker):

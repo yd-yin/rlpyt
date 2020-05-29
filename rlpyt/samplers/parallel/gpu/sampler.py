@@ -71,11 +71,13 @@ class GpuSamplerBase(ParallelSamplerBase):
         self.ctrl.do_eval.value = False
         return traj_infos
 
-    def _agent_init(self, agent, env, global_B=1, env_ranks=None):
+    def _agent_init(self, agent, env, global_B=1, env_ranks=None, env_spaces=None):
         """Initializes the agent, having it *not* share memory, because all
         agent functions (training and sampling) happen in the master process,
         presumably on GPU."""
-        agent.initialize(env.spaces, share_memory=False,  # No share memory.
+        if env_spaces is None:
+            env_spaces = env.spaces
+        agent.initialize(env_spaces, share_memory=False,  # No share memory.
             global_B=global_B, env_ranks=env_ranks)
         self.agent = agent
 
