@@ -24,6 +24,9 @@ from gibson2.external.pybullet_tools.utils import set_base_values, joint_from_na
     joint_controller, dump_body, load_model, joints_from_names, user_input, disconnect, get_joint_positions, \
     get_link_pose, link_from_name, HideOutput, get_pose, wait_for_user, dump_world, plan_nonholonomic_motion, set_point, create_box, stable_z, control_joints
 
+import torch
+from rlpyt.agents.dqn.relmogen.relmogen_dqn_agent import RelMoGenDqnAgent
+import collections
 
 class RelMoGenEnv(NavigateEnv):
     def __init__(
@@ -59,8 +62,10 @@ class RelMoGenEnv(NavigateEnv):
         self.downsize_ratio = downsize_ratio
         self.load_scene()
         self.load_observation_action_spaces()
-        # cv2.namedWindow('rgb')
-        # cv2.namedWindow('depth')
+        if self.mode == 'gui':
+            cv2.namedWindow('rgb')
+            cv2.namedWindow('depth')
+            cv2.namedWindow('q')
 
     def load_scene(self):
         interactive_objs = []
@@ -130,17 +135,10 @@ class RelMoGenEnv(NavigateEnv):
         depth = state['depth']
         state = np.concatenate((rgb, depth), axis=2)
         state = np.transpose(state, (2, 0, 1))
-        
-        # rgb = self.simulator.renderer.render_robot_cameras(modes=('rgb'))[0][:, :, :3]
-        # rgb = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-        # depth = -self.simulator.renderer.render_robot_cameras(modes=('3d'))[0][:, :, 2:3]
-        # depth = np.clip(depth / 5.0, 0.0, 1.0)
-        # cv2.imshow('rgb', rgb)
-        # cv2.imshow('depth', depth)
         return state
 
-    def step(self, action):
-        print('step:', self.current_step)
+    def step(self, action, action_map=None):
+        # print('step:', self.current_step)
         total_start = time.time()
         # start = time.time()
         assert 0 <= action < self.image_height_downsized * self.image_width_downsized
@@ -166,6 +164,8 @@ class RelMoGenEnv(NavigateEnv):
         # print('ray trace:', time.time() - start)
         # start = time.time()
 
+        valid_force = (object_id, link_id) in self.interactive_objs_joints
+
         if self.mode == 'gui':
             if self.debug_line_id is not None:
                 self.debug_line_id = p.addUserDebugLine(
@@ -174,7 +174,21 @@ class RelMoGenEnv(NavigateEnv):
                 self.debug_line_id = p.addUserDebugLine(
                     position_eye, position_world[:3], lineWidth=3)
 
-        valid_force = (object_id, link_id) in self.interactive_objs_joints
+            rgb = self.simulator.renderer.render_robot_cameras(modes=('rgb'))[0][:, :, :3]
+            rgb = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            depth = -self.simulator.renderer.render_robot_cameras(modes=('3d'))[0][:, :, 2:3]
+            depth = np.clip(depth / 5.0, 0.0, 1.0)
+            rgb = cv2.circle(rgb, (image_col, image_row), 10, (0, 0, 255), 2)
+            depth = cv2.circle(depth, (image_col, image_row), 10, (0, 0, 0), 2)
+            cv2.imshow('rgb', rgb)
+            cv2.imshow('depth', depth)
+            if action_map is not None:
+                action_map = cv2.circle(action_map, (image_col, image_row), 10, (0, 0, 0), 2)
+                action_map = (action_map - np.min(action_map)) / (np.max(action_map) - np.min(action_map))
+                action_map = np.reshape(action_map, (32, 32))
+                action_map = cv2.resize(action_map, (256, 256))
+                cv2.imshow('q', action_map)
+            time.sleep(1.0)
 
         # if valid_force:
         #     self.hit += 1
@@ -194,10 +208,9 @@ class RelMoGenEnv(NavigateEnv):
         #     print('AFTER', self.get_potential())
 
         state = self.get_state()
-
         # print('get state:', time.time() - start)
         # start = time.time()
-        
+
         reward = self.get_reward()
 
         # print('get reward:', time.time() - start)
@@ -205,7 +218,7 @@ class RelMoGenEnv(NavigateEnv):
 
         done = self.current_step >= self.max_step
         info = {}
-        print('total:', time.time() - total_start)
+        # print('total:', time.time() - total_start)
         return state, reward, done, info
 
     def reset_agent(self):
@@ -249,7 +262,7 @@ class RelMoGenEnv(NavigateEnv):
         self.simulator_step()
         self.simulator.sync()
         return state
-    
+
     def close(self):
         self.clean()
 
@@ -274,19 +287,47 @@ if __name__ == '__main__':
                           physics_timestep=1.0 / 240.0,
                           device_idx=0,
                           downsize_ratio=8)
+    # from IPython import embed
+    # embed()
 
-    step_time_list = []
-    for episode in range(100):
+    eval_policy = True
+    if eval_policy:
+        snapshot_pth = '/cvgl2/u/chengshu/rlpyt/data/local/20200521/222546_copy/relmogen/run_0/itr_26519.pkl'
+        data = torch.load(snapshot_pth)
+        model_state_dict = data['agent_state_dict']['model']
+        agent = RelMoGenDqnAgent(initial_model_state_dict=model_state_dict)
+        EnvSpaces = collections.namedtuple('EnvSpaces', ['observation', 'action'])
+        env_spaces = EnvSpaces(observation=nav_env.observation_space, action=nav_env.action_space)
+        agent.initialize(env_spaces)
+        model = agent.model.eval()
+
+    avg_episode_return = 0.0
+    num_episodes = 100
+    for episode in range(num_episodes):
         print('Episode: {}'.format(episode))
         start = time.time()
-        nav_env.reset()
+        state = nav_env.reset()
+        episode_return = 0.0
         while True:
-            action = nav_env.action_space.sample()
-            state, reward, done, _ = nav_env.step(action)
+            if eval_policy:
+                if np.random.random() < 0.0:
+                    action = nav_env.action_space.sample()
+                else:
+                    with torch.no_grad():
+                        action = model(torch.from_numpy(state), torch.from_numpy(np.array(nav_env.action_space.sample())), 0)
+                        action = action.numpy()
+                        max_action = np.argmax(action)
+                state, reward, done, _ = nav_env.step(max_action, action)
+            else:
+                action = nav_env.action_space.sample()
+                state, reward, done, _ = nav_env.step(action)
             print('step:', nav_env.current_step, 'reward:', reward)
+            episode_return += reward
             if done:
                 break
         print('Episode finished after {} timesteps, took {} seconds.'.format(
             nav_env.current_step, time.time() - start))
-    print(nav_env.hit / (100 * nav_env.max_step))
+        print('Return: {}'.format(episode_return))
+        avg_episode_return += episode_return
+    print('Average Return over {} episodes: {}'.format(num_episodes, avg_episode_return / num_episodes))
     nav_env.clean()
