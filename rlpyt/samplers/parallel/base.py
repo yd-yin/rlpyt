@@ -3,6 +3,8 @@ import multiprocessing as mp
 import ctypes
 import time
 import dill
+from IPython import embed
+
 
 from rlpyt.samplers.base import BaseSampler
 from rlpyt.samplers.buffer import build_samples_buffer
@@ -69,10 +71,19 @@ class ParallelSamplerBase(BaseSampler):
         self.rank = rank
 
         if self.eval_n_envs > 0:
-            self.eval_n_envs_per = max(1, self.eval_n_envs // n_worker)
-            self.eval_n_envs = eval_n_envs = self.eval_n_envs_per * n_worker
+            self.eval_n_envs_per = 1
+            # self.eval_n_envs_per = max(1, self.eval_n_envs // n_worker)
+            # self.eval_n_envs = eval_n_envs = self.eval_n_envs_per * n_worker
+            eval_n_envs = self.eval_n_envs
             logger.log(f"Total parallel evaluation envs: {eval_n_envs}.")
             self.eval_max_T = eval_max_T = int(self.eval_max_steps // eval_n_envs)
+
+        # Original
+        # env = self.EnvCls(**self.env_kwargs)
+        # self._agent_init(agent, env, global_B=global_B, env_ranks=env_ranks)
+        # examples = self._build_buffers(env, bootstrap_value)
+        # env.close()
+        # del env
 
         # Save env specs
         # env = self.EnvCls(**self.env_kwargs)
@@ -106,6 +117,15 @@ class ParallelSamplerBase(BaseSampler):
 
         common_kwargs = self._assemble_common_kwargs(affinity, global_B)
         workers_kwargs = self._assemble_workers_kwargs(affinity, seed, n_envs_list)
+
+        # self.train_n_envs = self.n_worker - self.eval_n_envs
+        # for i in range(self.train_n_envs):
+        #     workers_kwargs[i]["n_envs"] = 1
+        #     workers_kwargs[i]["eval_n_envs"] = 0
+        # for i in range(self.train_n_envs, self.n_worker):
+        #     workers_kwargs[i]["n_envs"] = 0
+        #     workers_kwargs[i]["eval_n_envs"] = 1
+        #     workers_kwargs[i]["eval_step_buffer_np"] = workers_kwargs[i - self.train_n_envs]["eval_step_buffer_np"]
 
         target = sampling_process if worker_process is None else worker_process
         self.workers = [mp.Process(target=target,
@@ -173,23 +193,31 @@ class ParallelSamplerBase(BaseSampler):
     ######################################
     # Helpers
     ######################################
-
     def _get_n_envs_list(self, affinity=None, n_worker=None, B=None):
         B = self.batch_spec.B if B is None else B
         n_worker = len(affinity["workers_cpus"]) if n_worker is None else n_worker
-        if B < n_worker:
-            logger.log(f"WARNING: requested fewer envs ({B}) than available worker "
-                f"processes ({n_worker}). Using fewer workers (but maybe better to "
-                "increase sampler's `batch_B`.")
-            n_worker = B
-        n_envs_list = [B // n_worker] * n_worker
-        if not B % n_worker == 0:
-            logger.log("WARNING: unequal number of envs per process, from "
-                f"batch_B {self.batch_spec.B} and n_worker {n_worker} "
-                "(possible suboptimal speed).")
-            for b in range(B % n_worker):
-                n_envs_list[b] += 1
+        assert n_worker == B + self.eval_n_envs
+        n_envs_list = []
+        n_envs_list += [(1, 0) for _ in range(B)]
+        n_envs_list += [(0, 1) for _ in range(self.eval_n_envs)]
         return n_envs_list
+
+    # def _get_n_envs_list(self, affinity=None, n_worker=None, B=None):
+    #     B = self.batch_spec.B if B is None else B
+    #     n_worker = len(affinity["workers_cpus"]) if n_worker is None else n_worker
+    #     if B < n_worker:
+    #         logger.log(f"WARNING: requested fewer envs ({B}) than available worker "
+    #             f"processes ({n_worker}). Using fewer workers (but maybe better to "
+    #             "increase sampler's `batch_B`.")
+    #         n_worker = B
+    #     n_envs_list = [B // n_worker] * n_worker
+    #     if not B % n_worker == 0:
+    #         logger.log("WARNING: unequal number of envs per process, from "
+    #             f"batch_B {self.batch_spec.B} and n_worker {n_worker} "
+    #             "(possible suboptimal speed).")
+    #         for b in range(B % n_worker):
+    #             n_envs_list[b] += 1
+    #     return n_envs_list
 
     def _agent_init(self, agent, env, global_B=1, env_ranks=None, env_spaces=None):
         if env_spaces is None:
@@ -244,9 +272,10 @@ class ParallelSamplerBase(BaseSampler):
     def _assemble_workers_kwargs(self, affinity, seed, n_envs_list):
         workers_kwargs = list()
         i_env = 0
-        g_env = sum(n_envs_list) * self.rank
+        n_train_env_list = [item[0] for item in n_envs_list]
+        g_env = sum(n_train_env_list) * self.rank
         for rank in range(len(n_envs_list)):
-            n_envs = n_envs_list[rank]
+            n_envs, eval_n_envs = n_envs_list[rank]
             slice_B = slice(i_env, i_env + n_envs)
             env_ranks = list(range(g_env, g_env + n_envs))
             worker_kwargs = dict(
@@ -256,6 +285,7 @@ class ParallelSamplerBase(BaseSampler):
                 cpus=(affinity["workers_cpus"][rank]
                     if affinity.get("set_affinity", True) else None),
                 n_envs=n_envs,
+                eval_n_envs=eval_n_envs,
                 samples_np=self.samples_np[:, slice_B],
                 sync=self.sync,  # Only for eval, on CPU.
             )

@@ -16,7 +16,9 @@ import rlpyt
 from rlpyt.samplers.serial.sampler import SerialSampler
 from rlpyt.samplers.parallel.gpu.sampler import GpuSampler
 from rlpyt.envs.gym_wrapper import make_relmogen as gym_make
+# from rlpyt.envs.gym_wrapper import make_grid as gym_make
 from rlpyt.algos.dqn.dqn import DQN
+from rlpyt.agents.dqn.grid.grid_dqn_agent import GridDqnAgent
 from rlpyt.agents.dqn.relmogen.relmogen_dqn_agent import RelMoGenDqnAgent
 from rlpyt.runners.minibatch_rl import MinibatchRlEval, MinibatchRl
 from rlpyt.utils.logging.context import logger_context
@@ -28,17 +30,18 @@ def build_and_train(run_ID=0, cuda_idx=None):
     print(gibson_cfg)
 
     env_cfg = dict(
+        mode='headless',
         config_file=gibson_cfg,
         action_timestep=1.0 / 24.0,
         physics_timestep=1.0 / 240.0,
         device_idx=0,
         downsize_ratio=8,
     )
+    # env_cfg = dict(grid_size=4, max_steps=1, obs_inflation=32)
 
     affinity = dict(
         cuda_idx=cuda_idx,
-        master_cpus=[0, 1, 2, 3],
-        workers_cpus=[6, 7],
+        workers_cpus=[39, 9, 10, 11, 12, 13, 14, 15, 18, 19, 29, 30],
     )
 
     sampler = GpuSampler(
@@ -46,10 +49,10 @@ def build_and_train(run_ID=0, cuda_idx=None):
         env_kwargs=env_cfg,
         eval_env_kwargs=env_cfg,
         batch_T=4,  # each sample collect 1 env steps
-        batch_B=2,  # 1 train envs
+        batch_B=8,  # 2 train envs
         max_decorrelation_steps=0,
-        eval_n_envs=0,
-        eval_max_steps=200000000000,
+        eval_n_envs=4,
+        eval_max_steps=600,
     )
 
     # sampler = SerialSampler(
@@ -64,22 +67,23 @@ def build_and_train(run_ID=0, cuda_idx=None):
     # )
 
     algo = DQN(
-        batch_size=32,
-        min_steps_learn=int(2e3),
-        replay_size=int(5e3),
+        batch_size=256,
+        min_steps_learn=int(5e3),
+        replay_size=int(1.5e5),
         replay_ratio=8,  # replay_ratio = batch_size / (batch_T * batch_B)
-        target_update_interval=250,  # 250 * (batch_size / replay_ratio = 4) = 1e3 env steps.
+        target_update_interval=156,  # 250 * (batch_size / replay_ratio = 4) = 1e3 env steps.
         ReplayBufferCls=UniformReplayBuffer,
-        eps_steps=int(1e6),
+        eps_steps=int(5e5),
     )
 
     agent = RelMoGenDqnAgent()
-    runner = MinibatchRl(
+    # agent = GridDqnAgent()
+    runner = MinibatchRlEval(
         algo=algo,
         agent=agent,
         sampler=sampler,
         n_steps=int(1e6),
-        log_interval_steps=1e2,
+        log_interval_steps=5e3,
         affinity=affinity,
     )
 

@@ -67,7 +67,7 @@ class GpuSamplerBase(ParallelSamplerBase):
         traj_infos = self.serve_actions_evaluation(itr)
         self.ctrl.barrier_out.wait()
         traj_infos.extend(drain_queue(self.eval_traj_infos_queue,
-            n_sentinel=self.n_worker))  # Block until all finish submitting.
+            n_sentinel=self.eval_n_envs))  # Block until all finish submitting.
         self.ctrl.do_eval.value = False
         return traj_infos
 
@@ -108,11 +108,11 @@ class GpuSamplerBase(ParallelSamplerBase):
         return common_kwargs
 
     def _assemble_workers_kwargs(self, affinity, seed, n_envs_list):
-        workers_kwargs = super()._assemble_workers_kwargs(affinity, seed,
-            n_envs_list)
+        workers_kwargs = super()._assemble_workers_kwargs(affinity, seed, n_envs_list)
         i_env = 0
+        rank_with_eval = 0
         for rank, w_kwargs in enumerate(workers_kwargs):
-            n_envs = n_envs_list[rank]
+            n_envs, eval_n_envs = n_envs_list[rank]
             slice_B = slice(i_env, i_env + n_envs)
             w_kwargs["sync"] = AttrDict(
                 stop_eval=self.sync.stop_eval,
@@ -120,11 +120,12 @@ class GpuSamplerBase(ParallelSamplerBase):
                 act_ready=self.sync.act_ready[rank],
             )
             w_kwargs["step_buffer_np"] = self.step_buffer_np[slice_B]
-            if self.eval_n_envs > 0:
-                eval_slice_B = slice(self.eval_n_envs_per * rank,
-                    self.eval_n_envs_per * (rank + 1))
+            if eval_n_envs > 0:
+                eval_slice_B = slice(self.eval_n_envs_per * rank_with_eval,
+                    self.eval_n_envs_per * (rank_with_eval + 1))
                 w_kwargs["eval_step_buffer_np"] = \
                     self.eval_step_buffer_np[eval_slice_B]
+                rank_with_eval += 1
             i_env += n_envs
         return workers_kwargs
 
