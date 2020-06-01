@@ -122,8 +122,8 @@ class EpsilonGreedyAgentMixin:
         pre-training eval."""
         super().eval_mode(itr)
         logger.log(f"Agent at itr {itr}, eval eps "
-            f"{self.eps_eval if itr > 0 else 1.}")
-        self.distribution.set_epsilon(self.eps_eval if itr > 0 else 1.)
+            f"{self.eps_eval}")
+        self.distribution.set_epsilon(self.eps_eval)
 
     # def eval_mode(self, itr):
     #     super().eval_mode(itr)

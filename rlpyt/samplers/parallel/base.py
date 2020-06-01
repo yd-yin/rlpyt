@@ -15,8 +15,8 @@ from rlpyt.utils.synchronize import drain_queue
 
 
 EVAL_TRAJ_CHECK = 0.1  # seconds.
-RELMOGEN_SPACES_PICKLE = '/cvgl2/u/chengshu/rlpyt/rlpyt/envs/relmogen_spaces.pickle'
-RELMOGEN_EXAMPLES_PICKLE = '/cvgl2/u/chengshu/rlpyt/rlpyt/envs/relmogen_examples.pickle'
+RELMOGEN_SPACES_PICKLE = '/cvgl2/u/chengshu/rlpyt/rlpyt/envs/relmogen_spaces_dict.pickle'
+RELMOGEN_EXAMPLES_PICKLE = '/cvgl2/u/chengshu/rlpyt/rlpyt/envs/relmogen_examples_dict.pickle'
 
 class ParallelSamplerBase(BaseSampler):
     """Base class for samplers which use worker processes to run environment
@@ -78,7 +78,7 @@ class ParallelSamplerBase(BaseSampler):
             logger.log(f"Total parallel evaluation envs: {eval_n_envs}.")
             self.eval_max_T = eval_max_T = int(self.eval_max_steps // eval_n_envs)
 
-        # Original
+        # # Original
         # env = self.EnvCls(**self.env_kwargs)
         # self._agent_init(agent, env, global_B=global_B, env_ranks=env_ranks)
         # examples = self._build_buffers(env, bootstrap_value)

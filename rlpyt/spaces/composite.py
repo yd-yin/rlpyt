@@ -9,7 +9,7 @@ class Composite(Space):
     def __init__(self, spaces, NamedTupleCls):
         """Must input the instantiated sub-spaces in order (e.g. list or
         tuple), and a named tuple class with whch to organize the sub-spaces
-        and resulting samples.  The ``NamedTupleCls`` should be defined in 
+        and resulting samples.  The ``NamedTupleCls`` should be defined in
         the module (file) which defines the composite space.
         """
         self._spaces = spaces
@@ -17,7 +17,7 @@ class Composite(Space):
         self._NamedTupleCls = NamedTupleCls
 
     def sample(self):
-        """Return a single sample which is a named tuple composed of samples 
+        """Return a single sample which is a named tuple composed of samples
         from all sub-spaces."""
         return self._NamedTupleCls(*(s.sample() for s in self._spaces))
 
@@ -40,6 +40,10 @@ class Composite(Space):
     def spaces(self):
         """Return the bare sub-spaces."""
         return self._spaces
+
+    def seed(self, seed=None):
+        for space in self.spaces:
+            space.seed(seed)
 
     def __repr__(self):
         return ", ".join(space.__repr__() for space in self._spaces)

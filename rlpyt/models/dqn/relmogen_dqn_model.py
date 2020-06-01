@@ -15,8 +15,7 @@ class RelMoGenDqnModel(torch.nn.Module):
 
     def __init__(
             self,
-            image_shape,
-            output_size,
+            observation_space,
             use_maxpool=False,
             channels=None,  # None uses default.
             kernel_sizes=None,
@@ -27,35 +26,28 @@ class RelMoGenDqnModel(torch.nn.Module):
         """Instantiates the neural network according to arguments; network defaults
         stored within this method."""
         super().__init__()
-        c, _, _ = image_shape
-        self.conv = Conv2dModel(
-            in_channels=c,
-            channels=channels or [16, 16, 32, 32, 64, 64],
-            kernel_sizes=kernel_sizes or [3, 3, 3, 3, 3, 3],
-            strides=strides or [2, 1, 2, 1, 2, 1],
-            paddings=paddings or [1, 1, 1, 1, 1, 1],
-        )
-        self.bottleneck = Conv2dModel(
-            in_channels=64,
-            channels=channels or [64, 64],
-            kernel_sizes=kernel_sizes or [3, 3],
-            strides=strides or [1, 1],
-            paddings=paddings or [1, 1],
-        )
-        self.deconv = Deconv2dModel(
-            in_channels=64,
-            channels=channels or [64, 64, 32],
-            kernel_sizes=kernel_sizes or [3, 3, 3],
-            strides=strides or [2, 2, 2],
-            paddings=paddings or [1, 1, 1],
-            output_paddings=output_paddings or [1, 1, 1],
-        )
-        self.output = torch.nn.Conv2d(
-            in_channels=64,
-            out_channels=1,
-            kernel_size=3,
-            stride=1,
-            padding=1)
+
+        self.modalities = observation_space.names
+        self.in_channels = [space.shape[0] for space in observation_space.spaces]
+        self.out_channels = [1 for _ in range(len(self.modalities))]
+        self.convs = torch.nn.ModuleList([
+            Conv2dModel(
+                in_channels=in_channel,
+                channels=channels or [16, 16, 32, 32, 64, 64],
+                kernel_sizes=kernel_sizes or [3, 3, 3, 3, 3, 3],
+                strides=strides or [2, 1, 2, 1, 2, 1],
+                paddings=paddings or [1, 1, 1, 1, 1, 1],
+            ) for in_channel in self.in_channels
+        ])
+        self.outputs = torch.nn.ModuleList([
+            torch.nn.Conv2d(
+                in_channels=64,
+                out_channels=out_channel,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+            ) for out_channel in self.out_channels
+        ])
 
     def forward(self, observation, prev_action, prev_reward):
         """
@@ -67,30 +59,21 @@ class RelMoGenDqnModel(torch.nn.Module):
         storage and transfer).  Used in both sampler and in algorithm (both
         via the agent).
         """
-        img = observation
+        q_values = []
+        for modality, conv, output in zip(self.modalities, self.convs, self.outputs):
+            obs = getattr(observation, modality)
+            # Infer (presence of) leading dimensions: [T,B], [B], or [].
+            lead_dim, T, B, img_shape = infer_leading_dims(obs, 3)
+            conv_out = conv(obs.view(T * B, *img_shape))
+            q = output(conv_out)
+            q = q.view(T * B, -1)
+            # Restore leading dimensions: [T,B], [B], or [], as input.
+            q = restore_leading_dims(q, lead_dim, T, B)
+            q_values.append(q)
 
-        # Infer (presence of) leading dimensions: [T,B], [B], or [].
-        lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
+        if len(self.modalities) > 1:
+            q_value = torch.cat(q_values, axis=-1)
+        else:
+            q_value = q_values[0]
 
-        conv_out = self.conv(img.view(T * B, *img_shape))  # Fold if T dimension.
-        # print('conv', conv_out.shape)
-
-        bottleneck_out = conv_out
-        # bottleneck_out = self.bottleneck(conv_out)
-        # print('bottleneck', bottleneck_out.shape)
-
-        deconv_out = bottleneck_out
-        # deconv_out = self.deconv(bottleneck_out)
-        # print('deconv', deconv_out.shape)
-
-        q = self.output(deconv_out)
-        # print('q before flatten', q.shape)
-
-        q = q.view(T * B, -1)
-        # Restore leading dimensions: [T,B], [B], or [], as input.
-        q = restore_leading_dims(q, lead_dim, T, B)
-
-        # print('q', q.shape)
-        # assert False
-
-        return q
+        return q_value

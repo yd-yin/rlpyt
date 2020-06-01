@@ -7,6 +7,8 @@ import time
 import cv2
 import argparse
 from IPython import embed
+from collections import OrderedDict
+from scipy.spatial.transform import Rotation as R
 
 import gibson2
 from gibson2.core.physics.robot_locomotors import Turtlebot, JR2_Kinova, Fetch
@@ -22,11 +24,13 @@ from transforms3d.euler import euler2quat
 from gibson2.external.pybullet_tools.utils import set_base_values, joint_from_name, set_joint_position, \
     set_joint_positions, add_data_path, connect, plan_base_motion, plan_joint_motion, enable_gravity, \
     joint_controller, dump_body, load_model, joints_from_names, user_input, disconnect, get_joint_positions, \
-    get_link_pose, link_from_name, HideOutput, get_pose, wait_for_user, dump_world, plan_nonholonomic_motion, set_point, create_box, stable_z, control_joints
+    get_link_pose, link_from_name, HideOutput, get_pose, wait_for_user, dump_world, plan_nonholonomic_motion, \
+    set_point, create_box, stable_z, control_joints, set_base_values_with_z
 
 import torch
 from rlpyt.agents.dqn.relmogen.relmogen_dqn_agent import RelMoGenDqnAgent
 import collections
+
 
 class RelMoGenEnv(NavigateEnv):
     def __init__(
@@ -40,6 +44,9 @@ class RelMoGenEnv(NavigateEnv):
         device_idx=0,
         render_to_tensor=False,
         downsize_ratio=8,
+        use_base=False,
+        occ_map_size=256,
+        occ_map_crop_range=2.0,
     ):
         """
         :param config_file: config_file path
@@ -59,6 +66,10 @@ class RelMoGenEnv(NavigateEnv):
                          automatic_reset=automatic_reset,
                          device_idx=device_idx,
                          render_to_tensor=render_to_tensor)
+        assert self.image_height == self.image_width
+        self.use_base = use_base
+        self.occ_map_size = occ_map_size
+        self.occ_map_crop_range = occ_map_crop_range
         self.downsize_ratio = downsize_ratio
         self.load_scene()
         self.load_observation_action_spaces()
@@ -66,6 +77,9 @@ class RelMoGenEnv(NavigateEnv):
             cv2.namedWindow('rgb')
             cv2.namedWindow('depth')
             cv2.namedWindow('q')
+            cv2.namedWindow('q_before_resize')
+            if self.use_base:
+                cv2.namedWindow('occ_map')
 
     def load_scene(self):
         interactive_objs = []
@@ -94,8 +108,7 @@ class RelMoGenEnv(NavigateEnv):
             obj.set_position(pos)
             for joint_id in range(p.getNumJoints(obj.body_id)):
                 _, _, jointType, _, _, _, _, _, \
-                    jointLowerLimit, jointUpperLimit, _, _, _, _, _, _, _ = p.getJointInfo(
-                        obj.body_id, joint_id)
+                    jointLowerLimit, jointUpperLimit, _, _, _, _, _, _, _ = p.getJointInfo(obj.body_id, joint_id)
                 if jointType == p.JOINT_REVOLUTE or jointType == p.JOINT_PRISMATIC:
                     interactive_objs_joints.append((obj.body_id, joint_id))
                     interactive_objs_joint_limits.append(
@@ -112,59 +125,118 @@ class RelMoGenEnv(NavigateEnv):
         self.interactive_objs_joints = interactive_objs_joints
         self.interactive_objs_joint_limits = interactive_objs_joint_limits
 
-        self.initial_pos_range = np.array([[0.0, 0.0], [1.0, 1.0]])
+        if self.use_base:
+            # TODO: increase initial pos range
+            self.initial_pos_range = np.array([[0.0, 1.0], [1.0, 1.0]])
+        else:
+            self.initial_pos_range = np.array([[0.0, 0.0], [1.0, 1.0]])
         self.initial_orn_range = np.array(
             [np.pi - np.pi / 6.0, np.pi + np.pi / 6.0])
-        self.hit = 0
         self.debug_line_id = None
 
     def load_observation_action_spaces(self):
-        self.observation_space = gym.spaces.Box(low=0.0,
+        observation_space = OrderedDict()
+        self.vision_space = gym.spaces.Box(low=0.0,
+                                           high=1.0,
+                                           shape=(4, self.image_height, self.image_width),
+                                           dtype=np.float32)
+        observation_space['vision'] = self.vision_space
+        if self.use_base:
+            self.occ_map_space = gym.spaces.Box(low=0.0,
                                                 high=1.0,
-                                                shape=(
-                                                    4, self.image_height, self.image_height),
+                                                shape=(1, self.occ_map_size, self.occ_map_size),
                                                 dtype=np.float32)
+            observation_space['occ_map'] = self.occ_map_space
+        self.observation_space = gym.spaces.Dict(observation_space)
         self.image_height_downsized = self.image_height // self.downsize_ratio
         self.image_width_downsized = self.image_width // self.downsize_ratio
-        self.action_space = gym.spaces.Discrete(
-            self.image_height_downsized * self.image_width_downsized)
+        self.occ_map_size_downsized = self.occ_map_size // self.downsize_ratio
+        action_range = self.image_height_downsized * self.image_width_downsized
+        if self.use_base:
+            action_range += self.occ_map_size_downsized * self.occ_map_size_downsized
+        self.action_space = gym.spaces.Discrete(action_range)
+
+    def get_occupancy_map(self, scan=None):
+        laser_angular_half_range = self.laser_angular_range / 2.0
+        angle = np.arange(-laser_angular_half_range / 180 * np.pi,
+                          laser_angular_half_range / 180 * np.pi,
+                          self.laser_angular_range / 180.0 * np.pi / self.n_horizontal_rays)
+        if scan is None:
+            hit_fraction = self.get_scan()
+        else:
+            hit_fraction = scan
+
+        x = self.laser_linear_range * hit_fraction[:, 0] * np.sin(angle)
+        y = self.laser_linear_range * hit_fraction[:, 0] * np.cos(angle)
+        y = -y
+
+        x = np.concatenate([[0], x, [0]])
+        y = np.concatenate([[0], y, [0]])
+
+        img = np.zeros((self.occ_map_size, self.occ_map_size), np.uint8)
+        pts = []
+        for i in range(len(x)):
+            pts.append([(
+                int(x[i]+ self.occ_map_crop_range / 2) * self.occ_map_size / self.occ_map_crop_range),
+                int((y[i] + self.occ_map_crop_range / 2) * self.occ_map_size / self.occ_map_crop_range
+            )])
+        pts = np.array(pts, np.int32)
+        pts = pts.reshape((1, -1, 1, 2))
+        cv2.fillPoly(img, pts, True, 1)
+        return img.astype(np.float32)
 
     def get_state(self):
         state = super().get_state()
         rgb = state['rgb']
         depth = state['depth']
-        state = np.concatenate((rgb, depth), axis=2)
-        state = np.transpose(state, (2, 0, 1))
+        scan = state['scan']
+        rgbd = np.concatenate((rgb, depth), axis=2)
+        rgbd = np.transpose(rgbd, (2, 0, 1))
+        state = {}
+        state['vision'] = rgbd
+        if self.use_base:
+            state['occ_map'] = np.expand_dims(self.get_occupancy_map(scan), axis=0)
         return state
+    
+    def occ_rc_to_local_xy(self, occ_rc):
+        occ_row, occ_col = occ_rc
+        x = -(occ_row / self.occ_map_size - 0.5)  * self.occ_map_crop_range
+        y = -(occ_col / self.occ_map_size - 0.5)  * self.occ_map_crop_range
+        return [x, y]
 
-    def step(self, action, action_map=None):
-        # print('step:', self.current_step)
-        total_start = time.time()
-        # start = time.time()
-        assert 0 <= action < self.image_height_downsized * self.image_width_downsized
+    def global_to_local(self, pos, cur_pos, cur_rot):
+        return rotate_vector_3d(pos - cur_pos, *cur_rot)
 
-        self.current_step += 1
+    def local_to_global(self, pos, cur_pos, cur_rot):
+        r, p, y = cur_rot
+        local_to_global = R.from_euler('xyz', [r, p, y]).as_dcm()
+        return np.dot(local_to_global, pos) + cur_pos
 
+    def step_arm(self, action, action_map=None):
+        # print('arm')
         row = action // self.image_width_downsized
         col = action % self.image_width_downsized
-
         image_3d = self.simulator.renderer.render_robot_cameras(modes=('3d'))[0]
         image_row = int((row + 0.5) * self.downsize_ratio)
         image_col = int((col + 0.5) * self.downsize_ratio)
         position_cam = image_3d[image_row, image_col]
-        position_world = np.linalg.inv(
-            self.simulator.renderer.V).dot(position_cam)
+        position_world = np.linalg.inv(self.simulator.renderer.V).dot(position_cam)
         position_eye = self.robots[0].eyes.get_position()
 
         # print('get point:', time.time() - start)
         # start = time.time()
 
-        object_id, link_id, _, hit_pos, hit_normal = p.rayTest(
-            position_eye, position_world[:3] + position_world[:3] - position_eye)[0]
+        object_id, link_id, _, hit_pos, hit_normal = p.rayTest(position_eye, position_world[:3] + position_world[:3] - position_eye)[0]
         # print('ray trace:', time.time() - start)
         # start = time.time()
 
-        valid_force = (object_id, link_id) in self.interactive_objs_joints
+        # maximum push range 1.5m
+        valid_range = np.linalg.norm(position_world[:3] - position_eye) < 1.5
+        valid_force = valid_range and (object_id, link_id) in self.interactive_objs_joints
+        if valid_force:
+            pass
+            # print('dist', np.linalg.norm(position_world[:3] - position_eye))
+            # print('valid arm')
 
         if self.mode == 'gui':
             if self.debug_line_id is not None:
@@ -178,22 +250,21 @@ class RelMoGenEnv(NavigateEnv):
             rgb = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
             depth = -self.simulator.renderer.render_robot_cameras(modes=('3d'))[0][:, :, 2:3]
             depth = np.clip(depth / 5.0, 0.0, 1.0)
-            rgb = cv2.circle(rgb, (image_col, image_row), 10, (0, 0, 255), 2)
+            rgb = cv2.circle(rgb, (image_col, image_row),
+                                10, (0, 0, 255), 2)
             depth = cv2.circle(depth, (image_col, image_row), 10, (0, 0, 0), 2)
             cv2.imshow('rgb', rgb)
             cv2.imshow('depth', depth)
             if action_map is not None:
-                action_map = cv2.circle(action_map, (image_col, image_row), 10, (0, 0, 0), 2)
-                action_map = (action_map - np.min(action_map)) / (np.max(action_map) - np.min(action_map))
+                action_map = cv2.circle(
+                    action_map, (image_col, image_row), 10, (0, 0, 0), 2)
+                action_map = (action_map - np.min(action_map)) / \
+                    (np.max(action_map) - np.min(action_map))
                 action_map = np.reshape(action_map, (32, 32))
+                cv2.imshow('q_before_resize', action_map)
                 action_map = cv2.resize(action_map, (256, 256))
                 cv2.imshow('q', action_map)
             time.sleep(1.0)
-
-        # if valid_force:
-        #     self.hit += 1
-        #     print('VALID', (object_id, link_id))
-        #     print('BEFORE', self.get_potential())
 
         for _ in range(self.simulator_loop):
             if valid_force:
@@ -201,11 +272,47 @@ class RelMoGenEnv(NavigateEnv):
                     object_id, link_id, -np.array(hit_normal) * 1000, hit_pos, p.WORLD_FRAME)
             self.simulator_step()
         self.simulator.sync()
-        # print('apply force:', valid_force, time.time() - start)
-        # start = time.time()
 
-        # if valid_force:
-        #     print('AFTER', self.get_potential())
+    def step_base(self, action, action_map=None):
+        # print('base')
+        action -= self.image_height_downsized * self.image_width_downsized
+        row = action // self.occ_map_size_downsized
+        col = action % self.occ_map_size_downsized
+
+        occ_map = self.get_occupancy_map()
+        if occ_map[row, col] > 0:  # empty space
+            # print('valid base')
+            # print('rc', row, col)
+            image_row = int((row + 0.5) * self.downsize_ratio)
+            image_col = int((col + 0.5) * self.downsize_ratio)
+            robot_frame_xy = self.occ_rc_to_local_xy([image_row, image_col])
+            # print('robot_frame_xy', robot_frame_xy)
+            if self.mode == 'gui': 
+                occ_map = cv2.circle(occ_map, (image_col, image_row), 10, (0, 0, 255), 2)
+                cv2.imshow('occ_map', occ_map)
+                time.sleep(5.0)
+
+            #print(image_row, image_col)
+            # print(robot_frame_xy)
+            cur_rot = self.robots[0].get_rpy()
+            cur_pos = self.robots[0].get_position()
+            world_frame_base_position = self.local_to_global(np.array([robot_frame_xy[0], robot_frame_xy[1], 0]), cur_pos, cur_rot)
+            # print('world_frame_base_position', world_frame_base_position)
+            set_base_values_with_z(self.robots[0].robot_ids[0], [world_frame_base_position[0], world_frame_base_position[1], np.pi], z=0)
+            self.simulator.sync()
+
+    def step(self, action, action_map=None):
+        # print('step:', self.current_step)
+        # total_start = time.time()
+        # start = time.time()
+        assert 0 <= action < self.action_space.n
+
+        self.current_step += 1
+
+        if action < self.image_height_downsized * self.image_width_downsized:
+            self.step_arm(action, action_map)
+        else:
+            self.step_base(action, action_map)
 
         state = self.get_state()
         # print('get state:', time.time() - start)
@@ -286,18 +393,23 @@ if __name__ == '__main__':
                           action_timestep=1.0 / 24.0,
                           physics_timestep=1.0 / 240.0,
                           device_idx=0,
-                          downsize_ratio=8)
+                          downsize_ratio=8,
+                          use_base=True,
+                          )
     # from IPython import embed
     # embed()
 
     eval_policy = True
     if eval_policy:
         snapshot_pth = '/cvgl2/u/chengshu/rlpyt/data/local/20200521/222546_copy/relmogen/run_0/itr_26519.pkl'
+        # snapshot_pth = '/cvgl2/u/chengshu/rlpyt/data/local/20200529/002054/relmogen/run_0/'
         data = torch.load(snapshot_pth)
         model_state_dict = data['agent_state_dict']['model']
         agent = RelMoGenDqnAgent(initial_model_state_dict=model_state_dict)
-        EnvSpaces = collections.namedtuple('EnvSpaces', ['observation', 'action'])
-        env_spaces = EnvSpaces(observation=nav_env.observation_space, action=nav_env.action_space)
+        EnvSpaces = collections.namedtuple(
+            'EnvSpaces', ['observation', 'action'])
+        env_spaces = EnvSpaces(
+            observation=nav_env.observation_space, action=nav_env.action_space)
         agent.initialize(env_spaces)
         model = agent.model.eval()
 
@@ -314,7 +426,8 @@ if __name__ == '__main__':
                     action = nav_env.action_space.sample()
                 else:
                     with torch.no_grad():
-                        action = model(torch.from_numpy(state), torch.from_numpy(np.array(nav_env.action_space.sample())), 0)
+                        action = model(torch.from_numpy(state), torch.from_numpy(
+                            np.array(nav_env.action_space.sample())), 0)
                         action = action.numpy()
                         max_action = np.argmax(action)
                 state, reward, done, _ = nav_env.step(max_action, action)
@@ -329,5 +442,6 @@ if __name__ == '__main__':
             nav_env.current_step, time.time() - start))
         print('Return: {}'.format(episode_return))
         avg_episode_return += episode_return
-    print('Average Return over {} episodes: {}'.format(num_episodes, avg_episode_return / num_episodes))
+    print('Average Return over {} episodes: {}'.format(
+        num_episodes, avg_episode_return / num_episodes))
     nav_env.clean()
