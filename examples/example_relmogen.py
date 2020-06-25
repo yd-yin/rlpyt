@@ -19,6 +19,7 @@ from rlpyt.algos.dqn.dqn import DQN
 from rlpyt.agents.dqn.relmogen.relmogen_dqn_agent import RelMoGenDqnAgent
 from rlpyt.runners.minibatch_rl import MinibatchRlEval
 from rlpyt.utils.logging.context import logger_context
+from rlpyt.replays.non_sequence.uniform import UniformReplayBuffer
 
 
 def build_and_train(run_ID=0, cuda_idx=None):
@@ -48,9 +49,10 @@ def build_and_train(run_ID=0, cuda_idx=None):
         batch_size=256,
         min_steps_learn=int(5e3),
         target_update_interval=39, # 39 * 256 = 1e4 env steps.
+        ReplayBufferCls=UniformReplayBuffer,
     )
 
-    agent = GridDqnAgent()
+    agent = RelMoGenDqnAgent()
     runner = MinibatchRlEval(
         algo=algo,
         agent=agent,

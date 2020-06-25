@@ -16,6 +16,7 @@ from rlpyt.algos.dqn.dqn import DQN
 from rlpyt.agents.dqn.grid.grid_dqn_agent import GridDqnAgent
 from rlpyt.runners.minibatch_rl import MinibatchRlEval
 from rlpyt.utils.logging.context import logger_context
+from rlpyt.replays.non_sequence.uniform import UniformReplayBuffer
 
 
 def build_and_train(run_ID=0, cuda_idx=None):
@@ -31,7 +32,11 @@ def build_and_train(run_ID=0, cuda_idx=None):
         eval_max_trajectories=100,
     )
 
-    algo = DQN(replay_size=int(1e6), batch_size=4096)  # Run with defaults.
+    algo = DQN(
+        replay_size=int(1e6),
+        batch_size=4096,
+        ReplayBufferCls=UniformReplayBuffer,
+    )  # Run with defaults.
     agent = GridDqnAgent()
     runner = MinibatchRlEval(
         algo=algo,
@@ -49,11 +54,15 @@ def build_and_train(run_ID=0, cuda_idx=None):
     with logger_context(log_dir, run_ID, name, config, snapshot_mode="last", use_summary_writer=True):
         runner.train()
 
+
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--run_ID', help='run identifier (logging)', type=int, default=0)
-    parser.add_argument('--cuda_idx', help='gpu to use ', type=int, default=None)
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        '--run_ID', help='run identifier (logging)', type=int, default=0)
+    parser.add_argument('--cuda_idx', help='gpu to use ',
+                        type=int, default=None)
     args = parser.parse_args()
     build_and_train(
         run_ID=args.run_ID,

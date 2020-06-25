@@ -108,7 +108,8 @@ class RelMoGenEnv(NavigateEnv):
             obj.set_position(pos)
             for joint_id in range(p.getNumJoints(obj.body_id)):
                 _, _, jointType, _, _, _, _, _, \
-                    jointLowerLimit, jointUpperLimit, _, _, _, _, _, _, _ = p.getJointInfo(obj.body_id, joint_id)
+                    jointLowerLimit, jointUpperLimit, _, _, _, _, _, _, _ = p.getJointInfo(
+                        obj.body_id, joint_id)
                 if jointType == p.JOINT_REVOLUTE or jointType == p.JOINT_PRISMATIC:
                     interactive_objs_joints.append((obj.body_id, joint_id))
                     interactive_objs_joint_limits.append(
@@ -138,13 +139,15 @@ class RelMoGenEnv(NavigateEnv):
         observation_space = OrderedDict()
         self.vision_space = gym.spaces.Box(low=0.0,
                                            high=1.0,
-                                           shape=(4, self.image_height, self.image_width),
+                                           shape=(4, self.image_height,
+                                                  self.image_width),
                                            dtype=np.float32)
         observation_space['vision'] = self.vision_space
         if self.use_base:
             self.occ_map_space = gym.spaces.Box(low=0.0,
                                                 high=1.0,
-                                                shape=(1, self.occ_map_size, self.occ_map_size),
+                                                shape=(
+                                                    1, self.occ_map_size, self.occ_map_size),
                                                 dtype=np.float32)
             observation_space['occ_map'] = self.occ_map_space
         self.observation_space = gym.spaces.Dict(observation_space)
@@ -176,10 +179,14 @@ class RelMoGenEnv(NavigateEnv):
         img = np.zeros((self.occ_map_size, self.occ_map_size), np.uint8)
         pts = []
         for i in range(len(x)):
-            pts.append([(
-                int(x[i]+ self.occ_map_crop_range / 2) * self.occ_map_size / self.occ_map_crop_range),
-                int((y[i] + self.occ_map_crop_range / 2) * self.occ_map_size / self.occ_map_crop_range
-            )])
+            pts.append(
+                [
+                    int((x[i] + self.occ_map_crop_range / 2) *
+                        self.occ_map_size / self.occ_map_crop_range),
+                    int((y[i] + self.occ_map_crop_range / 2) *
+                        self.occ_map_size / self.occ_map_crop_range)
+                ]
+            )
         pts = np.array(pts, np.int32)
         pts = pts.reshape((1, -1, 1, 2))
         cv2.fillPoly(img, pts, True, 1)
@@ -195,13 +202,14 @@ class RelMoGenEnv(NavigateEnv):
         state = {}
         state['vision'] = rgbd
         if self.use_base:
-            state['occ_map'] = np.expand_dims(self.get_occupancy_map(scan), axis=0)
+            state['occ_map'] = np.expand_dims(
+                self.get_occupancy_map(scan), axis=0)
         return state
-    
+
     def occ_rc_to_local_xy(self, occ_rc):
         occ_row, occ_col = occ_rc
-        x = -(occ_row / self.occ_map_size - 0.5)  * self.occ_map_crop_range
-        y = -(occ_col / self.occ_map_size - 0.5)  * self.occ_map_crop_range
+        x = -(occ_row / self.occ_map_size - 0.5) * self.occ_map_crop_range
+        y = -(occ_col / self.occ_map_size - 0.5) * self.occ_map_crop_range
         return [x, y]
 
     def global_to_local(self, pos, cur_pos, cur_rot):
@@ -216,23 +224,32 @@ class RelMoGenEnv(NavigateEnv):
         # print('arm')
         row = action // self.image_width_downsized
         col = action % self.image_width_downsized
-        image_3d = self.simulator.renderer.render_robot_cameras(modes=('3d'))[0]
+        image_3d = self.simulator.renderer.render_robot_cameras(modes=('3d'))[
+            0]
         image_row = int((row + 0.5) * self.downsize_ratio)
         image_col = int((col + 0.5) * self.downsize_ratio)
         position_cam = image_3d[image_row, image_col]
-        position_world = np.linalg.inv(self.simulator.renderer.V).dot(position_cam)
+        position_world = np.linalg.inv(
+            self.simulator.renderer.V).dot(position_cam)
         position_eye = self.robots[0].eyes.get_position()
 
         # print('get point:', time.time() - start)
         # start = time.time()
 
-        object_id, link_id, _, hit_pos, hit_normal = p.rayTest(position_eye, position_world[:3] + position_world[:3] - position_eye)[0]
+        object_id, link_id, _, hit_pos, hit_normal = p.rayTest(
+            position_eye, position_world[:3] + position_world[:3] - position_eye)[0]
         # print('ray trace:', time.time() - start)
         # start = time.time()
 
         # maximum push range 1.5m
-        valid_range = np.linalg.norm(position_world[:3] - position_eye) < 1.5
-        valid_force = valid_range and (object_id, link_id) in self.interactive_objs_joints
+        if self.use_base:
+            valid_range = np.linalg.norm(
+                position_world[:3] - position_eye) < 1.5
+        else:
+            valid_range = True
+
+        valid_force = valid_range and (
+            object_id, link_id) in self.interactive_objs_joints
         if valid_force:
             pass
             # print('dist', np.linalg.norm(position_world[:3] - position_eye))
@@ -246,12 +263,15 @@ class RelMoGenEnv(NavigateEnv):
                 self.debug_line_id = p.addUserDebugLine(
                     position_eye, position_world[:3], lineWidth=3)
 
-            rgb = self.simulator.renderer.render_robot_cameras(modes=('rgb'))[0][:, :, :3]
+            rgb = self.simulator.renderer.render_robot_cameras(modes=('rgb'))[
+                0][:, :, :3]
             rgb = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            depth = -self.simulator.renderer.render_robot_cameras(modes=('3d'))[0][:, :, 2:3]
+            depth = - \
+                self.simulator.renderer.render_robot_cameras(modes=('3d'))[
+                    0][:, :, 2:3]
             depth = np.clip(depth / 5.0, 0.0, 1.0)
             rgb = cv2.circle(rgb, (image_col, image_row),
-                                10, (0, 0, 255), 2)
+                             10, (0, 0, 255), 2)
             depth = cv2.circle(depth, (image_col, image_row), 10, (0, 0, 0), 2)
             cv2.imshow('rgb', rgb)
             cv2.imshow('depth', depth)
@@ -287,8 +307,9 @@ class RelMoGenEnv(NavigateEnv):
             image_col = int((col + 0.5) * self.downsize_ratio)
             robot_frame_xy = self.occ_rc_to_local_xy([image_row, image_col])
             # print('robot_frame_xy', robot_frame_xy)
-            if self.mode == 'gui': 
-                occ_map = cv2.circle(occ_map, (image_col, image_row), 10, (0, 0, 255), 2)
+            if self.mode == 'gui':
+                occ_map = cv2.circle(
+                    occ_map, (image_col, image_row), 10, (0, 0, 255), 2)
                 cv2.imshow('occ_map', occ_map)
                 time.sleep(5.0)
 
@@ -296,9 +317,11 @@ class RelMoGenEnv(NavigateEnv):
             # print(robot_frame_xy)
             cur_rot = self.robots[0].get_rpy()
             cur_pos = self.robots[0].get_position()
-            world_frame_base_position = self.local_to_global(np.array([robot_frame_xy[0], robot_frame_xy[1], 0]), cur_pos, cur_rot)
+            world_frame_base_position = self.local_to_global(
+                np.array([robot_frame_xy[0], robot_frame_xy[1], 0]), cur_pos, cur_rot)
             # print('world_frame_base_position', world_frame_base_position)
-            set_base_values_with_z(self.robots[0].robot_ids[0], [world_frame_base_position[0], world_frame_base_position[1], np.pi], z=0)
+            set_base_values_with_z(self.robots[0].robot_ids[0], [
+                                   world_frame_base_position[0], world_frame_base_position[1], np.pi], z=0)
             self.simulator.sync()
 
     def step(self, action, action_map=None):
@@ -373,6 +396,10 @@ class RelMoGenEnv(NavigateEnv):
     def close(self):
         self.clean()
 
+    def set_seed(self, seed):
+        print('set seed', seed)
+        np.random.seed(seed)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -394,12 +421,12 @@ if __name__ == '__main__':
                           physics_timestep=1.0 / 240.0,
                           device_idx=0,
                           downsize_ratio=8,
-                          use_base=True,
+                          use_base=False,
                           )
     # from IPython import embed
     # embed()
 
-    eval_policy = True
+    eval_policy = False
     if eval_policy:
         snapshot_pth = '/cvgl2/u/chengshu/rlpyt/data/local/20200521/222546_copy/relmogen/run_0/itr_26519.pkl'
         # snapshot_pth = '/cvgl2/u/chengshu/rlpyt/data/local/20200529/002054/relmogen/run_0/'
