@@ -11,6 +11,8 @@ from rlpyt.envs.relmogen import RelMoGenEnv
 from rlpyt.spaces.gym_wrapper import GymSpaceWrapper
 from rlpyt.utils.collections import is_namedtuple_class
 
+from gibson2.envs.motion_planner_env import MotionPlanningBaseArmEnv
+
 
 class GymEnvWrapper(Wrapper):
     """Gym-style wrapper for converting the Openai Gym interface to the
@@ -34,7 +36,7 @@ class GymEnvWrapper(Wrapper):
     """
 
     def __init__(self, env,
-            act_null_value=0, obs_null_value=0, force_float32=True):
+                 act_null_value=0, obs_null_value=0, force_float32=True):
         super().__init__(env)
         o = self.env.reset()
         o, r, d, info = self.env.step(self.env.action_space.sample())
@@ -102,7 +104,7 @@ def build_info_tuples(info, name="info"):
     if ntc is None:
         globals()[name] = namedtuple(name, info_keys)
     elif not (is_namedtuple_class(ntc) and
-            sorted(ntc._fields) == sorted(info_keys)):
+              sorted(ntc._fields) == sorted(info_keys)):
         raise ValueError(f"Name clash in globals: {name}.")
     for k, v in info.items():
         if isinstance(v, dict):
@@ -115,7 +117,7 @@ def info_to_nt(value, name="info"):
     ntc = globals()[name]
     # Disregard unrecognized keys:
     values = {k: info_to_nt(v, "_".join([name, k]))
-        for k, v in value.items() if k in ntc._fields}
+              for k, v in value.items() if k in ntc._fields}
     # Can catch some missing values (doesn't nest):
     values.update({k: 0 for k in ntc._fields if k not in values})
     return ntc(**values)
@@ -173,8 +175,14 @@ def make(*args, info_example=None, **kwargs):
         return GymEnvWrapper(EnvInfoWrapper(
             gym.make(*args, **kwargs), info_example))
 
+
 def make_grid(*args, **kwargs):
     return GymEnvWrapper(Grid(*args, **kwargs))
 
+
 def make_relmogen(*args, **kwargs):
     return GymEnvWrapper(RelMoGenEnv(*args, **kwargs))
+
+
+def make_gibson(*args, **kwargs):
+    return GymEnvWrapper(MotionPlanningBaseArmEnv(*args, **kwargs))

@@ -7,11 +7,11 @@ from rlpyt.utils.collections import namedarraytuple, AttrDict
 Samples = namedarraytuple("Samples", ["agent", "env"])
 
 AgentSamples = namedarraytuple("AgentSamples",
-    ["action", "prev_action", "agent_info"])
+                               ["action", "prev_action", "agent_info"])
 AgentSamplesBsv = namedarraytuple("AgentSamplesBsv",
-    ["action", "prev_action", "agent_info", "bootstrap_value"])
+                                  ["action", "prev_action", "agent_info", "bootstrap_value"])
 EnvSamples = namedarraytuple("EnvSamples",
-    ["observation", "reward", "prev_reward", "done", "env_info"])
+                             ["observation", "reward", "prev_reward", "done", "env_info"])
 
 
 class BatchSpec(namedtuple("BatchSpec", "T B")):
@@ -35,7 +35,8 @@ class TrajInfo(AttrDict):
     Convention: traj_info fields CamelCase, opt_info fields lowerCamelCase.
     """
 
-    _discount = 1  # Leading underscore, but also class attr not in self.__dict__.
+    # Leading underscore, but also class attr not in self.__dict__.
+    _discount = 1
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)  # (for AttrDict behavior)
@@ -43,7 +44,9 @@ class TrajInfo(AttrDict):
         self.Return = 0
         self.NonzeroRewards = 0
         self.DiscountedReturn = 0
+        self.SuccessRate = 0
         self._cur_discount = 1
+        self._success_reward = 10
 
     def step(self, observation, action, reward, done, agent_info, env_info):
         self.Length += 1
@@ -51,6 +54,8 @@ class TrajInfo(AttrDict):
         self.NonzeroRewards += reward != 0
         self.DiscountedReturn += self._cur_discount * reward
         self._cur_discount *= self._discount
+        if reward >= self._success_reward:
+            self.SuccessRate = 1
 
     def terminate(self, observation):
         return self
