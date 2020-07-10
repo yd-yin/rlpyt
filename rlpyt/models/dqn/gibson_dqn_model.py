@@ -26,6 +26,8 @@ class GibsonDqnModel(torch.nn.Module):
         paddings=None,
         output_paddings=None,
         base_only=False,
+        draw_path_on_map=False,
+        feature_fusion=False
     ):
         """Instantiates the neural network according to arguments; network defaults
         stored within this method."""
@@ -40,9 +42,12 @@ class GibsonDqnModel(torch.nn.Module):
         # )
 
         self.base_only = base_only
+        self.draw_path_on_map = draw_path_on_map
+        self.feature_fusion = feature_fusion
+
         if not self.base_only:
             self.vision_input_dim = 4
-            self.vision_deconv_dim = 128
+            self.vision_deconv_dim = 256 if self.feature_fusion else 128
             self.vision_output_dim = 12
             # self.vision_conv = Conv2dModel(
             #     in_channels=self.vision_input_dim,
@@ -74,9 +79,9 @@ class GibsonDqnModel(torch.nn.Module):
                 padding=0,
             )
 
-        self.occ_grid_input_dim = 2
+        self.occ_grid_input_dim = 2 if self.draw_path_on_map else 1
         self.rotate_occ_grid = False
-        self.occ_grid_deconv_dim = 128
+        self.occ_grid_deconv_dim = 256 if self.feature_fusion else 128
         if self.rotate_occ_grid:
             self.occ_grid_output_dim = 1
         else:
@@ -151,17 +156,17 @@ class GibsonDqnModel(torch.nn.Module):
         #     1, 1, occ_grid_feature.shape[2], occ_grid_feature.shape[3])
 
         # Feature fusion
-        # vision_feature = torch.cat([vision_feature, sensor_feature], dim=1)
-        # occ_grid_feature = torch.cat([occ_grid_feature, sensor_feature], dim=1)
+        if self.feature_fusion and (not self.base_only):
+            vision_feature = torch.cat(
+                [vision_feature, occ_grid_feature], dim=1)
+            occ_grid_feature = vision_feature
 
         if not self.base_only:
             vision_feature = self.vision_deconv(vision_feature)
             vision_q_values = self.vision_output(vision_feature)
-            vision_q_values = vision_q_values.view(T * B, -1)
 
         occ_grid_feature = self.occ_grid_deconv(occ_grid_feature)
         occ_grid_q_values = self.occ_grid_output(occ_grid_feature)
-        occ_grid_q_values = occ_grid_q_values.view(T * B, -1)
 
         # Q values visualization
         # occ_grid_q_values_np = occ_grid_q_values.cpu().numpy().squeeze(0)
@@ -170,12 +175,32 @@ class GibsonDqnModel(torch.nn.Module):
         #     (np.max(occ_grid_q_values_np) - np.min(occ_grid_q_values_np))
         # for i in range(occ_grid_q_values_np.shape[0]):
         #     pred = occ_grid_q_values_np[i]
-        #     cv2.imwrite('vis/{}_pred_{}.png'.format(self.idx, i),
+        #     cv2.imwrite('vis/button_door/{}_pred_base_{}.png'.format(self.idx, i),
         #                 (pred * 255).astype(np.uint8))
+
+        # vision_q_values_np = vision_q_values.cpu().numpy().squeeze(0)
+        # vision_q_values_np = \
+        #     (vision_q_values_np - np.min(vision_q_values_np)) / \
+        #     (np.max(vision_q_values_np) - np.min(vision_q_values_np))
+        # for i in range(vision_q_values_np.shape[0]):
+        #     pred = vision_q_values_np[i]
+        #     cv2.imwrite('vis/button_door/{}_pred_arm_{}.png'.format(self.idx, i),
+        #                 (pred * 255).astype(np.uint8))
+
         # occ_grid_np = observation.occupancy_grid.cpu().numpy().squeeze(0)
         # grid = np.concatenate((occ_grid_np[0], occ_grid_np[1]), axis=1)
-        # cv2.imwrite('vis/{}_input.png'.format(self.idx),
+        # cv2.imwrite('vis/button_door/{}_input_occ_grid.png'.format(self.idx),
         #             (grid * 255).astype(np.uint8))
+
+        # rgb_np = observation.rgbd.cpu().numpy()[:3].transpose(1, 2, 0)
+        # rgb_np = cv2.cvtColor(rgb_np, cv2.COLOR_RGB2BGR)
+        # cv2.imwrite('vis/button_door/{}_input_rgb.png'.format(self.idx),
+        #             (rgb_np * 255).astype(np.uint8))
+
+        if not self.base_only:
+            vision_q_values = vision_q_values.view(T * B, -1)
+
+        occ_grid_q_values = occ_grid_q_values.view(T * B, -1)
 
         # first base, then arm
         if not self.base_only:

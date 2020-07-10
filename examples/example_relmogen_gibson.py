@@ -30,7 +30,16 @@ def build_and_train(run_ID=0,
                     arena='push_door',
                     cuda_idx=None,
                     model_path=None,
-                    eval_only=False):
+                    eval_only=False,
+                    batch_size=64,
+                    base_only=False,
+                    lr=1e-3,
+                    replay_size=int(1e4),
+                    replay_ratio=8,
+                    target_update_interval=1280,
+                    eps_init=0.2,
+                    draw_path_on_map=False,
+                    ):
 
     gibson_cfg = os.path.join(
         os.path.dirname(gibson2.__file__),
@@ -45,8 +54,8 @@ def build_and_train(run_ID=0,
         arena=arena,
         action_map=True,
         channel_first=True,
-        draw_path_on_map=True,
-        base_only=False,
+        draw_path_on_map=draw_path_on_map,
+        base_only=base_only,
         rotate_occ_grid=False,
         device_idx=0,
     )
@@ -56,11 +65,15 @@ def build_and_train(run_ID=0,
         snapshot_mode = 'none'
         num_train_env = 0
         num_eval_env = 1
+        eval_max_steps = 2500
+        eval_max_trajectories = 100
     else:
         n_steps = int(1e6)
         snapshot_mode = 'all'
         num_train_env = 10
         num_eval_env = 2
+        eval_max_steps = 250
+        eval_max_trajectories = 10
 
     num_cpus = num_train_env + num_eval_env
     affinity = dict(
@@ -87,8 +100,8 @@ def build_and_train(run_ID=0,
         batch_B=num_train_env,  # 2 train envs
         max_decorrelation_steps=0,
         eval_n_envs=num_eval_env,
-        eval_max_steps=250,
-        eval_max_trajectories=10,
+        eval_max_steps=eval_max_steps,
+        eval_max_trajectories=eval_max_trajectories,
     )
 
     # sampler = SerialSampler(
@@ -105,14 +118,14 @@ def build_and_train(run_ID=0,
     algo = DQN(
         double_dqn=True,
         delta_clip=None,
-        learning_rate=1e-3,
+        learning_rate=lr,
         discount=0.99,
-        batch_size=64,
+        batch_size=batch_size,
         min_steps_learn=int(1e3),
-        replay_size=int(1e4),
-        replay_ratio=8,
+        replay_size=replay_size,
+        replay_ratio=replay_ratio,
         # 320 * batch_size / replay_ratio = 2560 env steps.
-        target_update_interval=2560,
+        target_update_interval=target_update_interval,
         ReplayBufferCls=UniformReplayBuffer,
         eps_steps=int(5e5),
         initial_optim_state_dict=optimizer_state_dict,
@@ -120,12 +133,14 @@ def build_and_train(run_ID=0,
     )
 
     model_kwargs = dict(
-        base_only=False
+        base_only=base_only,
+        draw_path_on_map=draw_path_on_map,
+        feature_fusion=True,
     )
 
     agent = RelMoGenDqnAgent(
         ModelCls=GibsonDqnModel,
-        eps_init=0.5,
+        eps_init=eps_init,
         eps_final=0.04,
         eps_eval=0.0,
         initial_model_state_dict=agent_state_dict,
@@ -144,10 +159,23 @@ def build_and_train(run_ID=0,
     )
 
     game = 'relmogen'
-    config = dict(game=game)
     name = 'dqn_' + game
     log_dir = 'relmogen'
-    with logger_context(log_dir, run_ID, name, config,
+    log_params = dict(
+        arena=arena,
+        cuda_idx=arena,
+        model_path=model_path,
+        eval_only=eval_only,
+        batch_size=batch_size,
+        base_only=base_only,
+        lr=lr,
+        replay_size=replay_size,
+        replay_ratio=replay_ratio,
+        target_update_interval=target_update_interval,
+        eps_init=eps_init,
+    )
+    with logger_context(log_dir, run_ID, name,
+                        log_params=log_params,
                         snapshot_mode=snapshot_mode,
                         use_summary_writer=True):
         runner.train()
@@ -161,12 +189,32 @@ if __name__ == '__main__':
         '--run_ID', help='run identifier (logging)', type=str, default="0")
     parser.add_argument('--arena', help='which arena to train',
                         type=str, default='push_door')
+    parser.add_argument('--draw_path_on_map',
+                        help='whether to draw path on occupancy grid',
+                        action='store_true')
     parser.add_argument('--cuda_idx', help='gpu to use',
                         type=int, default=None)
     parser.add_argument('--model_path', help='path to the saved model',
                         type=str, default=None)
     parser.add_argument('--eval_only', help='whether to only run evaluation',
                         action='store_true')
+    parser.add_argument('--batch_size', help='batch size',
+                        type=int, default=64)
+    parser.add_argument('--base_only', help='whether to only use base',
+                        action='store_true')
+    parser.add_argument('--lr', help='learning rate',
+                        type=float, default=1e-3)
+    parser.add_argument('--replay_size', help='replay buffer size',
+                        type=int, default=int(1e4))
+    parser.add_argument('--replay_ratio', help='replay buffer ratio',
+                        type=int, default=8)
+    parser.add_argument('--target_update_interval',
+                        help='target update interval',
+                        type=int, default=1280)
+    parser.add_argument('--eps_init',
+                        help='initial epsilon for epsilon greedy',
+                        type=float, default=0.2)
+
     args = parser.parse_args()
     build_and_train(
         run_ID=args.run_ID,
@@ -174,4 +222,12 @@ if __name__ == '__main__':
         cuda_idx=args.cuda_idx,
         model_path=args.model_path,
         eval_only=args.eval_only,
+        batch_size=args.batch_size,
+        base_only=args.base_only,
+        lr=args.lr,
+        replay_size=args.replay_size,
+        replay_ratio=args.replay_ratio,
+        target_update_interval=args.target_update_interval,
+        eps_init=args.eps_init,
+        draw_path_on_map=args.draw_path_on_map,
     )

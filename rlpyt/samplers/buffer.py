@@ -26,8 +26,13 @@ def build_samples_buffer(agent, env_cls, env_kwargs, batch_spec,
             w.start()
             w.join()
             examples = dict(examples)
-            examples["env_info"] = namedtuple("info",
-                                              list(examples["env_info"]))()
+            examples["env_info"] = namedtuple(
+                "info",
+                list(examples["env_info"]))(
+                success=True,
+                episode_length=25,
+                collision_step=0,
+            )
         else:
             examples = dict()
             get_example_outputs(agent, env_cls, env_kwargs,
