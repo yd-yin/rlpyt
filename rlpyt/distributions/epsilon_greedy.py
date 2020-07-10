@@ -41,7 +41,8 @@ class EpsilonGreedy(DiscreteMixin, Distribution):
             arg_select = []
             for t in range(q.shape[0]):
                 for b in range(q.shape[1]):
-                    single_occ_grid = occ_grid[t][b][0][4::8, 4::8]
+                    single_occ_grid = occ_grid[t][b][0][2::4, 2::4]
+                    # single_occ_grid = occ_grid[t][b][0][4::8, 4::8]
                     single_occ_grid = single_occ_grid.flatten().repeat(12)
                     # valid_idx = single_occ_grid.nonzero().squeeze(1)
                     valid_idx = torch.cat(

@@ -27,6 +27,7 @@ class GibsonDqnModel(torch.nn.Module):
         output_paddings=None,
         base_only=False,
         draw_path_on_map=False,
+        draw_objs_on_map=False,
         feature_fusion=False
     ):
         """Instantiates the neural network according to arguments; network defaults
@@ -43,6 +44,7 @@ class GibsonDqnModel(torch.nn.Module):
 
         self.base_only = base_only
         self.draw_path_on_map = draw_path_on_map
+        self.draw_objs_on_map = draw_objs_on_map
         self.feature_fusion = feature_fusion
 
         if not self.base_only:
@@ -59,9 +61,9 @@ class GibsonDqnModel(torch.nn.Module):
             self.vision_conv = Conv2dModel(
                 in_channels=self.vision_input_dim,
                 channels=channels or [32, 64, 64, 128],
-                kernel_sizes=kernel_sizes or [7, 5, 3, 3],
-                strides=strides or [4, 2, 2, 2],
-                paddings=paddings or [3, 2, 1, 1],
+                kernel_sizes=kernel_sizes or [3, 3, 3, 3],
+                strides=strides or [2, 2, 2, 2],
+                paddings=paddings or [1, 1, 1, 1],
             )
             self.vision_deconv = Deconv2dModel(
                 in_channels=self.vision_deconv_dim,
@@ -79,7 +81,8 @@ class GibsonDqnModel(torch.nn.Module):
                 padding=0,
             )
 
-        self.occ_grid_input_dim = 2 if self.draw_path_on_map else 1
+        self.occ_grid_input_dim = 2 if (
+            self.draw_path_on_map or self.draw_objs_on_map) else 1
         self.rotate_occ_grid = False
         self.occ_grid_deconv_dim = 256 if self.feature_fusion else 128
         if self.rotate_occ_grid:
@@ -98,9 +101,9 @@ class GibsonDqnModel(torch.nn.Module):
         self.occ_grid_conv = Conv2dModel(
             in_channels=self.occ_grid_input_dim,
             channels=channels or [32, 64, 64, 128],
-            kernel_sizes=kernel_sizes or [7, 5, 3, 3],
-            strides=strides or [4, 2, 2, 2],
-            paddings=paddings or [3, 2, 1, 1],
+            kernel_sizes=kernel_sizes or [3, 3, 3, 3],
+            strides=strides or [2, 2, 2, 2],
+            paddings=paddings or [1, 1, 1, 1],
         )
         self.occ_grid_deconv = Deconv2dModel(
             in_channels=self.occ_grid_deconv_dim,

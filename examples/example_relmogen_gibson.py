@@ -39,6 +39,7 @@ def build_and_train(run_ID=0,
                     target_update_interval=1280,
                     eps_init=0.2,
                     draw_path_on_map=False,
+                    draw_objs_on_map=False,
                     ):
 
     gibson_cfg = os.path.join(
@@ -55,6 +56,7 @@ def build_and_train(run_ID=0,
         action_map=True,
         channel_first=True,
         draw_path_on_map=draw_path_on_map,
+        draw_objs_on_map=draw_objs_on_map,
         base_only=base_only,
         rotate_occ_grid=False,
         device_idx=0,
@@ -135,6 +137,7 @@ def build_and_train(run_ID=0,
     model_kwargs = dict(
         base_only=base_only,
         draw_path_on_map=draw_path_on_map,
+        draw_objs_on_map=draw_objs_on_map,
         feature_fusion=True,
     )
 
@@ -192,6 +195,9 @@ if __name__ == '__main__':
     parser.add_argument('--draw_path_on_map',
                         help='whether to draw path on occupancy grid',
                         action='store_true')
+    parser.add_argument('--draw_objs_on_map',
+                        help='whether to draw objects on occupancy grid',
+                        action='store_true')
     parser.add_argument('--cuda_idx', help='gpu to use',
                         type=int, default=None)
     parser.add_argument('--model_path', help='path to the saved model',
@@ -230,4 +236,5 @@ if __name__ == '__main__':
         target_update_interval=args.target_update_interval,
         eps_init=args.eps_init,
         draw_path_on_map=args.draw_path_on_map,
+        draw_objs_on_map=args.draw_objs_on_map,
     )
