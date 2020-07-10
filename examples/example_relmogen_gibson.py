@@ -44,7 +44,7 @@ def build_and_train(run_ID=0,
 
     gibson_cfg = os.path.join(
         os.path.dirname(gibson2.__file__),
-        '../examples/configs/fetch_interactive_nav_s2r_mp.yaml')
+        '../examples/configs/fetch_interactive_nav_s2r_mp_rlpyt.yaml')
     print(gibson_cfg)
 
     env_cfg = dict(
@@ -72,7 +72,7 @@ def build_and_train(run_ID=0,
     else:
         n_steps = int(1e6)
         snapshot_mode = 'all'
-        num_train_env = 10
+        num_train_env = 8
         num_eval_env = 2
         eval_max_steps = 250
         eval_max_trajectories = 10
