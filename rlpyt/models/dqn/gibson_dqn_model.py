@@ -60,7 +60,7 @@ class GibsonDqnModel(torch.nn.Module):
                 in_channels=self.vision_input_dim,
                 channels=channels or [32, 64, 64, 128],
                 kernel_sizes=kernel_sizes or [7, 5, 3, 3],
-                strides=strides or [4, 2, 2, 2],
+                strides=strides or [2, 2, 2, 2],
                 paddings=paddings or [3, 2, 1, 1],
             )
             self.vision_deconv = Deconv2dModel(
@@ -99,7 +99,7 @@ class GibsonDqnModel(torch.nn.Module):
             in_channels=self.occ_grid_input_dim,
             channels=channels or [32, 64, 64, 128],
             kernel_sizes=kernel_sizes or [7, 5, 3, 3],
-            strides=strides or [4, 2, 2, 2],
+            strides=strides or [2, 2, 2, 2],
             paddings=paddings or [3, 2, 1, 1],
         )
         self.occ_grid_deconv = Deconv2dModel(
