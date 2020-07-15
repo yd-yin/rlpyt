@@ -42,6 +42,7 @@ def build_and_train(log_dir='data',
                     target_update_interval=1280,
                     eps_init=0.2,
                     discount=0.99,
+                    prioritized_replay=False,
                     draw_path_on_map=False,
                     draw_objs_on_map=False,
                     num_train_env=9,
@@ -149,7 +150,6 @@ def build_and_train(log_dir='data',
 
     algo = DQN(
         double_dqn=True,
-        delta_clip=None,
         learning_rate=lr,
         discount=discount,
         batch_size=batch_size,
@@ -159,7 +159,7 @@ def build_and_train(log_dir='data',
         # 320 * batch_size / replay_ratio = 2560 env steps.
         target_update_interval=target_update_interval,
         frame_buffer=False,
-        prioritized_replay=False,
+        prioritized_replay=prioritized_replay,
         eps_steps=int(1e6),
         initial_optim_state_dict=optimizer_state_dict,
         eval_only=eval_only
@@ -223,6 +223,9 @@ if __name__ == '__main__':
         '--run_ID', help='run identifier (logging)', type=str, required=True)
     parser.add_argument('--arena', help='which arena to train',
                         type=str, default='push_door')
+    parser.add_argument('--prioritized_replay',
+                        help='whether to use prioritized replay buffer',
+                        action='store_true')
     parser.add_argument('--draw_path_on_map',
                         help='whether to draw path on occupancy grid',
                         action='store_true')
@@ -297,6 +300,7 @@ if __name__ == '__main__':
         target_update_interval=args.target_update_interval,
         eps_init=args.eps_init,
         discount=args.discount,
+        prioritized_replay=args.prioritized_replay,
         draw_path_on_map=args.draw_path_on_map,
         draw_objs_on_map=args.draw_objs_on_map,
         num_train_env=args.num_train_env,
