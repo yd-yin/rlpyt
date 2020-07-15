@@ -29,8 +29,7 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-log_dir="test"
-# log_dir="/result"
+log_dir="/result"
 run_ID="relmogen_dqn_"$arena"_"$seed
 mkdir -p $log_dir/$run_ID
 
