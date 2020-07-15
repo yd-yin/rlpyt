@@ -91,6 +91,8 @@ def get_example_outputs(agent, env_cls, env_kwargs, examples, subprocess=False):
     o = env.reset()
     a = env.action_space.sample()
     o, r, d, env_info = env.step(a)
+    env.close()
+
     # Must match torch float dtype here.
     r = np.asarray(r, dtype="float32")
     agent.reset()

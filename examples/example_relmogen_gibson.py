@@ -26,11 +26,14 @@ from rlpyt.utils.logging.context import logger_context
 from rlpyt.replays.non_sequence.uniform import UniformReplayBuffer
 
 
-def build_and_train(run_ID=0,
+def build_and_train(log_dir='data',
+                    run_ID=0,
                     arena='push_door',
-                    cuda_idx=None,
+                    gpu_c=None,
+                    gpu_g=None,
                     model_path=None,
                     eval_only=False,
+                    visualize=False,
                     batch_size=64,
                     base_only=False,
                     lr=1e-3,
@@ -38,8 +41,13 @@ def build_and_train(run_ID=0,
                     replay_ratio=8,
                     target_update_interval=1280,
                     eps_init=0.2,
+                    discount=0.99,
                     draw_path_on_map=False,
                     draw_objs_on_map=False,
+                    num_train_env=9,
+                    num_eval_env=1,
+                    model_ids=None,
+                    model_ids_eval=None,
                     ):
 
     gibson_cfg = os.path.join(
@@ -47,8 +55,9 @@ def build_and_train(run_ID=0,
         '../examples/configs/fetch_interactive_nav_s2r_mp_rlpyt.yaml')
     print(gibson_cfg)
 
+    mode = 'gui' if visualize else 'leadless'
     env_cfg = dict(
-        mode='headless',
+        mode=mode,
         config_file=gibson_cfg,
         action_timestep=1 / 500.0,
         physics_timestep=1 / 500.0,
@@ -59,7 +68,7 @@ def build_and_train(run_ID=0,
         draw_objs_on_map=draw_objs_on_map,
         base_only=base_only,
         rotate_occ_grid=False,
-        device_idx=0,
+        device_idx=gpu_g,
     )
 
     if eval_only:
@@ -72,16 +81,30 @@ def build_and_train(run_ID=0,
     else:
         n_steps = int(1e6)
         snapshot_mode = 'all'
-        num_train_env = 8
-        num_eval_env = 2
+        num_train_env = num_train_env
+        num_eval_env = num_eval_env
         eval_max_steps = 250
         eval_max_trajectories = 10
 
+    if model_ids is None:
+        model_ids = [None] * num_train_env
+    else:
+        model_ids = model_ids.split(',')
+        assert len(model_ids) == num_train_env
+        env_cfg['model_id'] = model_ids[0]
+
+    if model_ids_eval is None:
+        model_ids_eval = [None] * num_eval_env
+    else:
+        model_ids_eval = model_ids_eval.split(',')
+        assert len(model_ids_eval) == num_eval_env
+
     num_cpus = num_train_env + num_eval_env
     affinity = dict(
-        cuda_idx=cuda_idx,
+        cuda_idx=gpu_c,
         workers_cpus=list(os.sched_getaffinity(0))[:num_cpus],
-        set_affinity=False
+        set_affinity=False,
+        model_ids=(model_ids + model_ids_eval)
     )
 
     if model_path is not None:
@@ -121,14 +144,15 @@ def build_and_train(run_ID=0,
         double_dqn=True,
         delta_clip=None,
         learning_rate=lr,
-        discount=0.99,
+        discount=discount,
         batch_size=batch_size,
         min_steps_learn=int(1e3),
         replay_size=replay_size,
         replay_ratio=replay_ratio,
         # 320 * batch_size / replay_ratio = 2560 env steps.
         target_update_interval=target_update_interval,
-        ReplayBufferCls=UniformReplayBuffer,
+        frame_buffer=False,
+        prioritized_replay=False,
         eps_steps=int(5e5),
         initial_optim_state_dict=optimizer_state_dict,
         eval_only=eval_only
@@ -161,12 +185,9 @@ def build_and_train(run_ID=0,
         seed=0,
     )
 
-    game = 'relmogen'
-    name = 'dqn_' + game
-    log_dir = 'relmogen'
     log_params = dict(
         arena=arena,
-        cuda_idx=arena,
+        gpu_c=gpu_c,
         model_path=model_path,
         eval_only=eval_only,
         batch_size=batch_size,
@@ -177,9 +198,10 @@ def build_and_train(run_ID=0,
         target_update_interval=target_update_interval,
         eps_init=eps_init,
     )
-    with logger_context(log_dir, run_ID, name,
+    with logger_context(log_dir, run_ID, name="",
                         log_params=log_params,
                         snapshot_mode=snapshot_mode,
+                        override_prefix=True,
                         use_summary_writer=True):
         runner.train()
 
@@ -189,7 +211,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        '--run_ID', help='run identifier (logging)', type=str, default="0")
+        '--log_dir', help='log directory', type=str, required=True)
+    parser.add_argument(
+        '--run_ID', help='run identifier (logging)', type=str, required=True)
     parser.add_argument('--arena', help='which arena to train',
                         type=str, default='push_door')
     parser.add_argument('--draw_path_on_map',
@@ -198,11 +222,15 @@ if __name__ == '__main__':
     parser.add_argument('--draw_objs_on_map',
                         help='whether to draw objects on occupancy grid',
                         action='store_true')
-    parser.add_argument('--cuda_idx', help='gpu to use',
+    parser.add_argument('--gpu_c', help='gpu to use for compute',
+                        type=int, default=None)
+    parser.add_argument('--gpu_g', help='gpu to use for graphics (iGibson)',
                         type=int, default=None)
     parser.add_argument('--model_path', help='path to the saved model',
                         type=str, default=None)
     parser.add_argument('--eval_only', help='whether to only run evaluation',
+                        action='store_true')
+    parser.add_argument('--visualize', help='whether to visualize policy',
                         action='store_true')
     parser.add_argument('--batch_size', help='batch size',
                         type=int, default=64)
@@ -220,14 +248,40 @@ if __name__ == '__main__':
     parser.add_argument('--eps_init',
                         help='initial epsilon for epsilon greedy',
                         type=float, default=0.2)
+    parser.add_argument('--discount',
+                        help='discount factor',
+                        type=float, default=0.99)
+    parser.add_argument('--num_train_env',
+                        help='number of training environments',
+                        type=int, default=9)
+    parser.add_argument('--num_eval_env',
+                        help='number of evaluation environments',
+                        type=int, default=1)
+    parser.add_argument(
+        "--model_ids",
+        type=str,
+        default=None,
+        help='a comma-separated list of model ids to overwrite config_file.'
+        'len(model_ids) == num_train_processes'
+    )
+    parser.add_argument(
+        "--model_ids_eval",
+        type=str,
+        default=None,
+        help='a comma-separated list of model ids to overwrite config_file.'
+             'len(model_ids_eval) == num_eval_processes'
+    )
 
     args = parser.parse_args()
     build_and_train(
+        log_dir=args.log_dir,
         run_ID=args.run_ID,
         arena=args.arena,
-        cuda_idx=args.cuda_idx,
+        gpu_c=args.gpu_c,
+        gpu_g=args.gpu_g,
         model_path=args.model_path,
         eval_only=args.eval_only,
+        visualize=args.visualize,
         batch_size=args.batch_size,
         base_only=args.base_only,
         lr=args.lr,
@@ -235,6 +289,11 @@ if __name__ == '__main__':
         replay_ratio=args.replay_ratio,
         target_update_interval=args.target_update_interval,
         eps_init=args.eps_init,
+        discount=args.discount,
         draw_path_on_map=args.draw_path_on_map,
         draw_objs_on_map=args.draw_objs_on_map,
+        num_train_env=args.num_train_env,
+        num_eval_env=args.num_eval_env,
+        model_ids=args.model_ids,
+        model_ids_eval=args.model_ids_eval,
     )

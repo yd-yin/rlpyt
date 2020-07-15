@@ -5,9 +5,19 @@ from collections import namedtuple
 from rlpyt.algos.base import RlAlgorithm
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.logging import logger
-from rlpyt.replays.non_sequence.frame import (UniformReplayFrameBuffer,
-                                              PrioritizedReplayFrameBuffer, AsyncUniformReplayFrameBuffer,
-                                              AsyncPrioritizedReplayFrameBuffer)
+from rlpyt.replays.non_sequence.frame import (
+    UniformReplayFrameBuffer,
+    PrioritizedReplayFrameBuffer,
+    AsyncUniformReplayFrameBuffer,
+    AsyncPrioritizedReplayFrameBuffer)
+from rlpyt.replays.non_sequence.prioritized import (
+    PrioritizedReplayBuffer,
+    AsyncPrioritizedReplayBuffer,
+)
+from rlpyt.replays.non_sequence.uniform import (
+    UniformReplayBuffer,
+    AsyncUniformReplayBuffer,
+)
 from rlpyt.utils.collections import namedarraytuple
 from rlpyt.utils.tensor import select_at_indexes, valid_mean
 from rlpyt.algos.utils import valid_from_done
@@ -48,6 +58,7 @@ class DQN(RlAlgorithm):
             # eps_eval=0.001,
             eps_steps=int(1e6),  # STILL IN ALGO (to convert to itr).
             double_dqn=False,
+            frame_buffer=False,
             prioritized_replay=False,
             pri_alpha=0.6,
             pri_beta_init=0.4,
@@ -157,11 +168,19 @@ class DQN(RlAlgorithm):
                 beta=self.pri_beta_init,
                 default_priority=self.default_priority,
             ))
-            ReplayCls = (AsyncPrioritizedReplayFrameBuffer if async_ else
-                         PrioritizedReplayFrameBuffer)
+            if self.frame_buffer:
+                ReplayCls = (AsyncPrioritizedReplayFrameBuffer if async_ else
+                             PrioritizedReplayFrameBuffer)
+            else:
+                ReplayCls = (AsyncPrioritizedReplayBuffer if async_ else
+                             PrioritizedReplayBuffer)
         else:
-            ReplayCls = (AsyncUniformReplayFrameBuffer if async_ else
-                         UniformReplayFrameBuffer)
+            if self.frame_buffer:
+                ReplayCls = (AsyncUniformReplayFrameBuffer if async_ else
+                             UniformReplayFrameBuffer)
+            else:
+                ReplayCls = (AsyncUniformReplayBuffer if async_ else
+                             UniformReplayBuffer)
         if self.ReplayBufferCls is not None:
             ReplayCls = self.ReplayBufferCls
             logger.log(f"WARNING: ignoring internal selection logic and using"

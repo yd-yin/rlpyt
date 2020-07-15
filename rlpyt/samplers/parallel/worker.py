@@ -23,7 +23,7 @@ def initialize_worker(rank, seed=None, cpu=None, torch_threads=None):
         cpu_affin = "UNAVAILABLE MacOS"
     log_str += f", CPU affinity {cpu_affin}"
     torch_threads = (1 if torch_threads is None and cpu is not None else
-        torch_threads)  # Default to 1 to avoid possible MKL hang.
+                     torch_threads)  # Default to 1 to avoid possible MKL hang.
     if torch_threads is not None:
         torch.set_num_threads(torch_threads)
     log_str += f", Torch threads {torch.get_num_threads()}"
@@ -49,6 +49,7 @@ def sampling_process(common_kwargs, worker_kwargs):
     initialize_worker(w.rank, w.seed, w.cpus, c.torch_threads)
 
     if w.get("n_envs", 0) > 0:
+        c.env_kwargs["model_id"] = w.model_id
         envs = [c.EnvCls(**c.env_kwargs) for _ in range(w.n_envs)]
         set_envs_seeds(envs, w.seed)
         collector = c.CollectorCls(
@@ -57,20 +58,24 @@ def sampling_process(common_kwargs, worker_kwargs):
             samples_np=w.samples_np,
             batch_T=c.batch_T,
             TrajInfoCls=c.TrajInfoCls,
-            agent=c.get("agent", None),  # Optional depending on parallel setup.
+            # Optional depending on parallel setup.
+            agent=c.get("agent", None),
             sync=w.get("sync", None),
             step_buffer_np=w.get("step_buffer_np", None),
             global_B=c.get("global_B", 1),
             env_ranks=w.get("env_ranks", None),
         )
-        agent_inputs, traj_infos = collector.start_envs(c.max_decorrelation_steps)
+        agent_inputs, traj_infos = collector.start_envs(
+            c.max_decorrelation_steps)
         collector.start_agent()
     else:
         envs = []
         collector = None
 
     if w.get("eval_n_envs", 0) > 0:
-        eval_envs = [c.EnvCls(**c.eval_env_kwargs) for _ in range(w.eval_n_envs)]
+        c.eval_env_kwargs["model_id"] = w.model_id
+        eval_envs = [c.EnvCls(**c.eval_env_kwargs)
+                     for _ in range(w.eval_n_envs)]
         set_envs_seeds(eval_envs, w.seed)
         eval_collector = c.eval_CollectorCls(
             rank=w.rank,
@@ -96,7 +101,8 @@ def sampling_process(common_kwargs, worker_kwargs):
             break
         if ctrl.do_eval.value:
             if eval_collector is not None:
-                eval_collector.collect_evaluation(ctrl.itr.value)  # Traj_infos to queue inside.
+                # Traj_infos to queue inside.
+                eval_collector.collect_evaluation(ctrl.itr.value)
         else:
             if collector is not None:
                 agent_inputs, traj_infos, completed_infos = collector.collect_batch(
