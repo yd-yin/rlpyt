@@ -55,6 +55,13 @@ def build_and_train(log_dir='data',
         '../examples/configs/fetch_interactive_nav_s2r_mp_rlpyt.yaml')
     print(gibson_cfg)
 
+    if arena in ['push_drawers', 'push_chairs']:
+        draw_path_on_map = False
+        draw_objs_on_map = True
+    else:
+        draw_path_on_map = True
+        draw_objs_on_map = False
+
     mode = 'gui' if visualize else 'leadless'
     env_cfg = dict(
         mode=mode,
@@ -153,7 +160,7 @@ def build_and_train(log_dir='data',
         target_update_interval=target_update_interval,
         frame_buffer=False,
         prioritized_replay=False,
-        eps_steps=int(5e5),
+        eps_steps=int(1e6),
         initial_optim_state_dict=optimizer_state_dict,
         eval_only=eval_only
     )
@@ -169,7 +176,7 @@ def build_and_train(log_dir='data',
         ModelCls=GibsonDqnModel,
         eps_init=eps_init,
         eps_final=0.04,
-        eps_eval=0.0,
+        eps_eval=0.04,
         initial_model_state_dict=agent_state_dict,
         model_kwargs=model_kwargs
     )
