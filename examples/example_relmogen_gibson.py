@@ -58,7 +58,7 @@ def build_and_train(log_dir='data',
 
     if arena in ['push_drawers', 'push_chairs']:
         draw_path_on_map = False
-        draw_objs_on_map = True
+        draw_objs_on_map = False
     else:
         draw_path_on_map = True
         draw_objs_on_map = False
@@ -74,6 +74,7 @@ def build_and_train(log_dir='data',
         channel_first=True,
         draw_path_on_map=draw_path_on_map,
         draw_objs_on_map=draw_objs_on_map,
+        randomize_object_pose=True,
         base_only=base_only,
         rotate_occ_grid=False,
         device_idx=gpu_g,
