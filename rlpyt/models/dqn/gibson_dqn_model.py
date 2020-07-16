@@ -25,7 +25,7 @@ class GibsonDqnModel(torch.nn.Module):
         strides=None,
         paddings=None,
         output_paddings=None,
-        base_only=False,
+        embodiment_mode="both",
         draw_path_on_map=False,
         draw_objs_on_map=False,
         feature_fusion=False
@@ -41,30 +41,30 @@ class GibsonDqnModel(torch.nn.Module):
         #     input_size=self.sensor_input_dim,
         #     hidden_sizes=[128, 128]
         # )
-
-        self.base_only = base_only
+        assert embodiment_mode in ["base", "arm", "both"]
+        self.embodiment_mode = embodiment_mode
         self.draw_path_on_map = draw_path_on_map
         self.draw_objs_on_map = draw_objs_on_map
         self.feature_fusion = feature_fusion
 
-        if not self.base_only:
-            self.vision_input_dim = 4
-            self.vision_deconv_dim = 256 if self.feature_fusion else 128
-            self.vision_output_dim = 12
-            # self.vision_conv = Conv2dModel(
-            #     in_channels=self.vision_input_dim,
-            #     channels=channels or [16, 16, 32, 32, 64, 64, 128, 128, 128, 128],
-            #     kernel_sizes=kernel_sizes or [3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
-            #     strides=strides or [2, 1, 2, 1, 2, 1, 2, 1, 2, 1],
-            #     paddings=paddings or [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            # )
-            self.vision_conv = Conv2dModel(
-                in_channels=self.vision_input_dim,
-                channels=channels or [32, 64, 64, 128],
-                kernel_sizes=kernel_sizes or [3, 3, 3, 3],
-                strides=strides or [2, 2, 2, 2],
-                paddings=paddings or [1, 1, 1, 1],
-            )
+        self.vision_input_dim = 4
+        self.vision_deconv_dim = 256 if self.feature_fusion else 128
+        self.vision_output_dim = 12
+        # self.vision_conv = Conv2dModel(
+        #     in_channels=self.vision_input_dim,
+        #     channels=channels or [16, 16, 32, 32, 64, 64, 128, 128, 128, 128],
+        #     kernel_sizes=kernel_sizes or [3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+        #     strides=strides or [2, 1, 2, 1, 2, 1, 2, 1, 2, 1],
+        #     paddings=paddings or [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        # )
+        self.vision_conv = Conv2dModel(
+            in_channels=self.vision_input_dim,
+            channels=channels or [32, 64, 64, 128],
+            kernel_sizes=kernel_sizes or [3, 3, 3, 3],
+            strides=strides or [2, 2, 2, 2],
+            paddings=paddings or [1, 1, 1, 1],
+        )
+        if self.embodiment_mode != "base":
             self.vision_deconv = Deconv2dModel(
                 in_channels=self.vision_deconv_dim,
                 channels=channels or [128, 64],
@@ -105,21 +105,22 @@ class GibsonDqnModel(torch.nn.Module):
             strides=strides or [2, 2, 2, 2],
             paddings=paddings or [1, 1, 1, 1],
         )
-        self.occ_grid_deconv = Deconv2dModel(
-            in_channels=self.occ_grid_deconv_dim,
-            channels=channels or [128, 64],
-            kernel_sizes=kernel_sizes or [3, 3],
-            strides=strides or [2, 2],
-            paddings=paddings or [1, 1],
-            output_paddings=output_paddings or [1, 1],
-        )
-        self.occ_grid_output = torch.nn.Conv2d(
-            in_channels=64,
-            out_channels=self.occ_grid_output_dim,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-        )
+        if self.embodiment_mode != "arm":
+            self.occ_grid_deconv = Deconv2dModel(
+                in_channels=self.occ_grid_deconv_dim,
+                channels=channels or [128, 64],
+                kernel_sizes=kernel_sizes or [3, 3],
+                strides=strides or [2, 2],
+                paddings=paddings or [1, 1],
+                output_paddings=output_paddings or [1, 1],
+            )
+            self.occ_grid_output = torch.nn.Conv2d(
+                in_channels=64,
+                out_channels=self.occ_grid_output_dim,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            )
         # self.idx = 0
 
     def forward(self, observation, prev_action, prev_reward):
@@ -137,11 +138,10 @@ class GibsonDqnModel(torch.nn.Module):
         # sensor_feature = self.sensor_embedder(
         #     observation.sensor.view(T * B, *input_shape))
 
-        if not self.base_only:
-            lead_dim, T, B, input_shape = infer_leading_dims(
-                observation.rgbd, 3)
-            vision_feature = self.vision_conv(
-                observation.rgbd.view(T * B, *input_shape))
+        lead_dim, T, B, input_shape = infer_leading_dims(
+            observation.rgbd, 3)
+        vision_feature = self.vision_conv(
+            observation.rgbd.view(T * B, *input_shape))
 
         lead_dim, T, B, input_shape = infer_leading_dims(
             observation.occupancy_grid, 3)
@@ -159,17 +159,20 @@ class GibsonDqnModel(torch.nn.Module):
         #     1, 1, occ_grid_feature.shape[2], occ_grid_feature.shape[3])
 
         # Feature fusion
-        if self.feature_fusion and (not self.base_only):
+        if self.feature_fusion:
             vision_feature = torch.cat(
                 [vision_feature, occ_grid_feature], dim=1)
             occ_grid_feature = vision_feature
 
-        if not self.base_only:
+        if self.embodiment_mode != 'base':
             vision_feature = self.vision_deconv(vision_feature)
             vision_q_values = self.vision_output(vision_feature)
+            vision_q_values = vision_q_values.view(T * B, -1)
 
-        occ_grid_feature = self.occ_grid_deconv(occ_grid_feature)
-        occ_grid_q_values = self.occ_grid_output(occ_grid_feature)
+        if self.embodiment_mode != 'arm':
+            occ_grid_feature = self.occ_grid_deconv(occ_grid_feature)
+            occ_grid_q_values = self.occ_grid_output(occ_grid_feature)
+            occ_grid_q_values = occ_grid_q_values.view(T * B, -1)
 
         # Q values visualization
         # occ_grid_q_values_np = occ_grid_q_values.cpu().numpy().squeeze(0)
@@ -200,16 +203,12 @@ class GibsonDqnModel(torch.nn.Module):
         # cv2.imwrite('vis/button_door/{}_input_rgb.png'.format(self.idx),
         #             (rgb_np * 255).astype(np.uint8))
 
-        if not self.base_only:
-            vision_q_values = vision_q_values.view(T * B, -1)
-
-        occ_grid_q_values = occ_grid_q_values.view(T * B, -1)
-
-        # first base, then arm
-        if not self.base_only:
-            q_value = torch.cat([occ_grid_q_values, vision_q_values], axis=-1)
-        else:
+        if self.embodiment_mode == 'arm':
+            q_value = vision_q_values
+        elif self.embodiment_mode == 'base':
             q_value = occ_grid_q_values
+        else:
+            q_value = torch.cat([occ_grid_q_values, vision_q_values], axis=-1)
 
         q_value = restore_leading_dims(q_value, lead_dim, T, B)
 

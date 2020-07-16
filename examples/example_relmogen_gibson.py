@@ -35,7 +35,6 @@ def build_and_train(log_dir='data',
                     eval_only=False,
                     visualize=False,
                     batch_size=64,
-                    base_only=False,
                     lr=1e-3,
                     replay_size=int(1e4),
                     replay_ratio=8,
@@ -75,7 +74,6 @@ def build_and_train(log_dir='data',
         draw_path_on_map=draw_path_on_map,
         draw_objs_on_map=draw_objs_on_map,
         randomize_object_pose=True,
-        base_only=base_only,
         rotate_occ_grid=False,
         device_idx=gpu_g,
     )
@@ -166,8 +164,15 @@ def build_and_train(log_dir='data',
         eval_only=eval_only
     )
 
+    if arena == 'random_nav':
+        embodiment_mode = 'base'
+    elif arena == 'tabletop_manip':
+        embodiment_mode = 'arm'
+    else:
+        embodiment_mode = 'both'
+
     model_kwargs = dict(
-        base_only=base_only,
+        embodiment_mode=embodiment_mode,
         draw_path_on_map=draw_path_on_map,
         draw_objs_on_map=draw_objs_on_map,
         feature_fusion=True,
@@ -199,7 +204,7 @@ def build_and_train(log_dir='data',
         model_path=model_path,
         eval_only=eval_only,
         batch_size=batch_size,
-        base_only=base_only,
+        embodiment_mode=embodiment_mode,
         lr=lr,
         replay_size=replay_size,
         replay_ratio=replay_ratio,
@@ -294,7 +299,6 @@ if __name__ == '__main__':
         eval_only=args.eval_only,
         visualize=args.visualize,
         batch_size=args.batch_size,
-        base_only=args.base_only,
         lr=args.lr,
         replay_size=args.replay_size,
         replay_ratio=args.replay_ratio,

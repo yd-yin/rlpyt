@@ -15,7 +15,7 @@ class EpsilonGreedy(DiscreteMixin, Distribution):
     def sample(self, q, observation=None):
         """Input can be shaped [T,B,Q] or [B,Q], and vector epsilon of length
         B will apply across the Batch dimension (same epsilon for all T)."""
-        if observation is None:
+        if observation is None or self.embodiment_mode == 'arm':
             arg_select = torch.argmax(q, dim=-1)
             mask = torch.rand(arg_select.shape) < self._epsilon
             arg_rand = torch.randint(
@@ -45,22 +45,28 @@ class EpsilonGreedy(DiscreteMixin, Distribution):
                     # single_occ_grid = occ_grid[t][b][0][4::8, 4::8]
                     single_occ_grid = single_occ_grid.flatten().repeat(12)
                     # valid_idx = single_occ_grid.nonzero().squeeze(1)
-                    valid_idx = torch.cat(
-                        (single_occ_grid.nonzero().squeeze(1),
-                         torch.arange(12 * 32 * 32, 24 * 32 * 32)))
+                    if self.embodiment_mode == 'base':
+                        valid_idx = single_occ_grid.nonzero().squeeze(1)
+                    else:
+                        valid_idx = torch.cat(
+                            (single_occ_grid.nonzero().squeeze(1),
+                             torch.arange(12 * 32 * 32, 24 * 32 * 32)))
                     num_valid_idx = valid_idx.shape[0]
                     if torch.rand(1)[0] < self._epsilon:
                         idx = torch.randint(low=0,
                                             high=num_valid_idx,
                                             size=(1,))[0]
                     else:
-                        single_q_arm = q[t][b][(12 * 32 * 32):]
                         single_q_base = q[t][b][:(12 * 32 * 32)]
                         single_q_base_valid = \
                             single_q_base[single_occ_grid.bool()]
-                        # single_q_valid = single_q_base_valid
-                        single_q_valid = torch.cat(
-                            (single_q_base_valid, single_q_arm))
+
+                        if self.embodiment_mode == 'base':
+                            single_q_valid = single_q_base_valid
+                        else:
+                            single_q_arm = q[t][b][(12 * 32 * 32):]
+                            single_q_valid = torch.cat(
+                                (single_q_base_valid, single_q_arm))
                         idx = torch.argmax(single_q_valid)
                     original_idx = valid_idx[idx]
                     arg_select.append(original_idx)
