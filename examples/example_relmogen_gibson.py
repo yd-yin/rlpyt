@@ -76,6 +76,7 @@ def build_and_train(log_dir='data',
         randomize_object_pose=True,
         rotate_occ_grid=False,
         device_idx=gpu_g,
+        log_dir=os.path.join(log_dir, run_ID)
     )
 
     if eval_only:
