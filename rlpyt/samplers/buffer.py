@@ -32,6 +32,10 @@ def build_samples_buffer(agent, env_cls, env_kwargs, batch_spec,
                 success=True,
                 episode_length=25,
                 collision_step=0,
+                episode_return=0,
+                path_length=10,
+                geodesic_dist=10,
+                spl=1,
             )
         else:
             examples = dict()
