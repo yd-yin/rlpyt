@@ -87,7 +87,7 @@ def build_and_train(log_dir='data',
         eval_max_steps = 2500
         eval_max_trajectories = 100
     else:
-        n_steps = int(1e6)
+        n_steps = int(1.25 * 1e6)
         snapshot_mode = 'all'
         num_train_env = num_train_env
         num_eval_env = num_eval_env
@@ -160,7 +160,7 @@ def build_and_train(log_dir='data',
         target_update_interval=target_update_interval,
         frame_buffer=False,
         prioritized_replay=prioritized_replay,
-        eps_steps=int(1e6),
+        eps_steps=int(1.25 * 1e6),
         initial_optim_state_dict=optimizer_state_dict,
         eval_only=eval_only
     )
