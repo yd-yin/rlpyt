@@ -24,6 +24,7 @@ while [[ "$#" -gt 0 ]]; do
         --model_ids_eval) model_ids_eval="$2"; shift ;;
         --arena) arena="$2"; shift ;;
         --seed) seed="$2"; shift ;;
+        --num_parallel) num_train_env="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
