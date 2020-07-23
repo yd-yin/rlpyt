@@ -167,7 +167,7 @@ def build_and_train(log_dir='data',
 
     if arena == 'random_nav':
         embodiment_mode = 'base'
-    elif arena == 'tabletop_manip':
+    elif arena in ['tabletop_manip', 'tabletop_reaching']:
         embodiment_mode = 'arm'
     else:
         embodiment_mode = 'both'
