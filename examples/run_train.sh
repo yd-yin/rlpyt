@@ -54,7 +54,7 @@ python -u example_relmogen_gibson.py \
   --batch_size $batch_size \
   --lr $lr \
   --target_update_interval $target_update_interval \
-  --model_path $model_path \
+  --model_path "$model_path" \
   --eps_init $eps_init \
   --num_train_env $num_train_env \
   --num_eval_env $num_eval_env \
