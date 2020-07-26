@@ -87,7 +87,10 @@ def build_and_train(log_dir='data',
         eval_max_steps = 2500
         eval_max_trajectories = 100
     else:
-        n_steps = int(1.25 * 1e6)
+        steps_per_episode = \
+            5 if arena in ['tabletop_manip', 'tabletop_reaching'] else 25
+        n_episodes = 50000
+        n_steps = steps_per_episode * n_episodes
         snapshot_mode = 'all'
         num_train_env = num_train_env
         num_eval_env = num_eval_env
@@ -163,7 +166,7 @@ def build_and_train(log_dir='data',
         target_update_interval=target_update_interval,
         frame_buffer=False,
         prioritized_replay=prioritized_replay,
-        eps_steps=int(1.25 * 1e6),
+        eps_steps=n_steps,
         initial_optim_state_dict=optimizer_state_dict,
         eval_only=eval_only
     )
