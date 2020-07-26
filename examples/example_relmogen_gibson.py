@@ -115,12 +115,15 @@ def build_and_train(log_dir='data',
         model_ids=(model_ids + model_ids_eval)
     )
 
-    if model_path is not None:
+    if model_path is not None and model_path != '':
         assert os.path.isfile(model_path), \
             'model_path does not exist: {}'.format(model_path)
         data = torch.load(model_path)
         agent_state_dict = data['agent_state_dict']['model']
-        optimizer_state_dict = data['optimizer_state_dict']
+        optimizer_state_dict = None
+
+        # uncomment the following line if you want to load the optimizer state
+        # optimizer_state_dict = data['optimizer_state_dict']
     else:
         agent_state_dict = None
         optimizer_state_dict = None
@@ -212,7 +215,7 @@ def build_and_train(log_dir='data',
         target_update_interval=target_update_interval,
         eps_init=eps_init,
     )
-    with logger_context(log_dir, run_ID, name="",
+    with logger_context(log_dir, run_ID, name='',
                         log_params=log_params,
                         snapshot_mode=snapshot_mode,
                         override_prefix=True,
@@ -275,18 +278,18 @@ if __name__ == '__main__':
                         help='number of evaluation environments',
                         type=int, default=1)
     parser.add_argument(
-        "--model_ids",
+        '--model_ids',
         type=str,
         default=None,
         help='a comma-separated list of model ids to overwrite config_file.'
         'len(model_ids) == num_train_processes'
     )
     parser.add_argument(
-        "--model_ids_eval",
+        '--model_ids_eval',
         type=str,
         default=None,
         help='a comma-separated list of model ids to overwrite config_file.'
-             'len(model_ids_eval) == num_eval_processes'
+        'len(model_ids_eval) == num_eval_processes'
     )
 
     args = parser.parse_args()

@@ -14,6 +14,7 @@ model_ids="Avonia,Avonia,Avonia,candcenter,candcenter,candcenter,gates_jan20,gat
 model_ids_eval="Avonia"
 arena="push_door"
 seed="0"
+model_path=""
 
 ### change default arguments
 while [[ "$#" -gt 0 ]]; do
@@ -25,6 +26,7 @@ while [[ "$#" -gt 0 ]]; do
         --arena) arena="$2"; shift ;;
         --seed) seed="$2"; shift ;;
         --num_parallel) num_train_env="$2"; shift ;;
+        --model_path) model_path="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -41,6 +43,7 @@ echo "model_ids:" $model_ids
 echo "model_ids_eval:" $model_ids_eval
 echo "arena:" $arena
 echo "seed:" $seed
+echo "model_path:" $model_path
 
 python -u example_relmogen_gibson.py \
   --gpu_c $gpu_c \
@@ -51,6 +54,7 @@ python -u example_relmogen_gibson.py \
   --batch_size $batch_size \
   --lr $lr \
   --target_update_interval $target_update_interval \
+  --model_path $model_path \
   --eps_init $eps_init \
   --num_train_env $num_train_env \
   --num_eval_env $num_eval_env \
