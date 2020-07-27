@@ -49,7 +49,7 @@ def build_and_train(log_dir='data',
                     model_ids=None,
                     model_ids_eval=None,
                     num_eval_episodes=100,
-                    fine_motion_plan=True,
+                    fine_motion_plan=False,
                     base_mp_algo='birrt',
                     arm_mp_algo='birrt',
                     exploration_type='epsilon',
@@ -294,7 +294,8 @@ if __name__ == '__main__':
                         type=int, default=100)
     parser.add_argument('--fine_motion_plan',
                         help='whether to use fine motion planner',
-                        type=str, default='true')
+                        type=str, default='false',
+                        choices=['true', 'false'])
     parser.add_argument('--base_mp_algo',
                         help='base motion planner algorithm',
                         type=str, default='birrt')
