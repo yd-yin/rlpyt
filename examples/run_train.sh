@@ -15,6 +15,7 @@ model_ids_eval="Avonia"
 arena="push_door"
 seed="0"
 model_path=""
+exploration_type="epsilon"
 
 ### change default arguments
 while [[ "$#" -gt 0 ]]; do
@@ -27,6 +28,7 @@ while [[ "$#" -gt 0 ]]; do
         --seed) seed="$2"; shift ;;
         --num_parallel) num_train_env="$2"; shift ;;
         --model_path) model_path="$2"; shift ;;
+        --exploration_type) exploration_type="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -44,6 +46,7 @@ echo "model_ids_eval:" $model_ids_eval
 echo "arena:" $arena
 echo "seed:" $seed
 echo "model_path:" $model_path
+echo "exploration_type:" $exploration_type
 
 python -u example_relmogen_gibson.py \
   --gpu_c $gpu_c \
@@ -55,6 +58,7 @@ python -u example_relmogen_gibson.py \
   --lr $lr \
   --target_update_interval $target_update_interval \
   --model_path "$model_path" \
+  --exploration_type $exploration_type \
   --eps_init $eps_init \
   --num_train_env $num_train_env \
   --num_eval_env $num_eval_env \
