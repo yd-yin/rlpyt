@@ -52,6 +52,7 @@ def build_and_train(log_dir='data',
                     fine_motion_plan=False,
                     base_mp_algo='birrt',
                     arm_mp_algo='birrt',
+                    optimize_iter=0,
                     exploration_type='epsilon',
                     ):
 
@@ -85,6 +86,7 @@ def build_and_train(log_dir='data',
         fine_motion_plan=fine_motion_plan,
         base_mp_algo=base_mp_algo,
         arm_mp_algo=arm_mp_algo,
+        optimize_iter=optimize_iter,
     )
 
     if eval_only:
@@ -302,6 +304,9 @@ if __name__ == '__main__':
     parser.add_argument('--arm_mp_algo',
                         help='arm motion planner algorithm',
                         type=str, default='birrt')
+    parser.add_argument('--optimize_iter',
+                        help='base trajectory optimization iteration (500-2000)',
+                        type=int, default=0)
     parser.add_argument('--exploration_type',
                         help='exploration type',
                         type=str, default='epsilon',
@@ -350,5 +355,6 @@ if __name__ == '__main__':
         fine_motion_plan=args.fine_motion_plan == 'true',
         base_mp_algo=args.base_mp_algo,
         arm_mp_algo=args.arm_mp_algo,
+        optimize_iter=args.optimize_iter,
         exploration_type=args.exploration_type,
     )

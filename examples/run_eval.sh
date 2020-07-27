@@ -19,8 +19,10 @@ num_eval_episodes="100"
 fine_motion_plan="true"
 base_mp_algo="birrt"  # birrt | lazy_prm
 arm_mp_algo="birrt"  # birrt | lazy_prm
+optimize_iter="0"
 log_dir="test"
 run_ID="test"
+
 
 ### change default arguments
 while [[ "$#" -gt 0 ]]; do
@@ -37,6 +39,7 @@ while [[ "$#" -gt 0 ]]; do
         --fine_motion_plan) fine_motion_plan="$2"; shift ;;
         --base_mp_algo) base_mp_algo="$2"; shift ;;
         --arm_mp_algo) arm_mp_algo="$2"; shift ;;
+        --optimize_iter) optimize_iter="$2"; shift ;;
         --log_dir) log_dir="$2"; shift ;;
         --run_ID) run_ID="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
@@ -57,6 +60,7 @@ echo "num_eval_episodes:" $num_eval_episodes
 echo "fine_motion_plan:" $fine_motion_plan
 echo "base_mp_algo:" $base_mp_algo
 echo "arm_mp_algo:" $arm_mp_algo
+echo "optimize_iter:" $optimize_iter
 
 python -u example_relmogen_gibson.py \
   --gpu_c $gpu_c \
@@ -77,4 +81,5 @@ python -u example_relmogen_gibson.py \
   --num_eval_episodes $num_eval_episodes \
   --fine_motion_plan $fine_motion_plan \
   --base_mp_algo $base_mp_algo \
-  --arm_mp_algo $arm_mp_algo
+  --arm_mp_algo $arm_mp_algo \
+  --optimize_iter $optimize_iter
