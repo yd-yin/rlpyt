@@ -77,10 +77,6 @@ class BoltzmannGreedy(DiscreteMixin, Distribution):
     def temperature(self):
         return self._temperature
 
-    def set_temperature(self, temperature):
-        """Assign value for temperature (can be vector)."""
+    def set_epsilon(self, temperature):
+        """Assign value for temperature"""
         self._temperature = temperature
-
-    def set_epsilon(self, epsilon):
-        """Hack to avoid errors"""
-        return
