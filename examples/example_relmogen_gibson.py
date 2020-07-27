@@ -48,6 +48,11 @@ def build_and_train(log_dir='data',
                     num_eval_env=1,
                     model_ids=None,
                     model_ids_eval=None,
+                    num_eval_episodes=100,
+                    fine_motion_plan=True,
+                    base_mp_algo='birrt',
+                    arm_mp_algo='birrt',
+                    exploration_type='epsilon',
                     ):
 
     gibson_cfg = os.path.join(
@@ -76,7 +81,10 @@ def build_and_train(log_dir='data',
         randomize_object_pose=True,
         rotate_occ_grid=False,
         device_idx=gpu_g,
-        log_dir=os.path.join(log_dir, run_ID)
+        log_dir=os.path.join(log_dir, run_ID),
+        fine_motion_plan=fine_motion_plan,
+        base_mp_algo=base_mp_algo,
+        arm_mp_algo=arm_mp_algo,
     )
 
     if eval_only:
@@ -85,7 +93,7 @@ def build_and_train(log_dir='data',
         num_train_env = 0
         num_eval_env = 1
         eval_max_steps = 2500
-        eval_max_trajectories = 100
+        eval_max_trajectories = num_eval_episodes
     else:
         steps_per_episode = \
             5 if arena in ['tabletop_manip', 'tabletop_reaching'] else 25
@@ -97,7 +105,7 @@ def build_and_train(log_dir='data',
         eval_max_steps = 250
         eval_max_trajectories = 10
 
-    if model_ids is None:
+    if model_ids is None or eval_only:
         model_ids = [None] * num_train_env
     else:
         model_ids = model_ids.split(',')
@@ -191,7 +199,8 @@ def build_and_train(log_dir='data',
         eps_final=0.04,
         eps_eval=0.04,
         initial_model_state_dict=agent_state_dict,
-        model_kwargs=model_kwargs
+        model_kwargs=model_kwargs,
+        distribution_type=exploration_type,  # epsilon|boltzmann
     )
 
     # agent = GridDqnAgent()
@@ -280,6 +289,23 @@ if __name__ == '__main__':
     parser.add_argument('--num_eval_env',
                         help='number of evaluation environments',
                         type=int, default=1)
+    parser.add_argument('--num_eval_episodes',
+                        help='number of evaluation episodes',
+                        type=int, default=100)
+    parser.add_argument('--fine_motion_plan',
+                        help='whether to use fine motion planner',
+                        type=str, default='true')
+    parser.add_argument('--base_mp_algo',
+                        help='base motion planner algorithm',
+                        type=str, default='birrt')
+    parser.add_argument('--arm_mp_algo',
+                        help='arm motion planner algorithm',
+                        type=str, default='birrt')
+    parser.add_argument('--exploration_type',
+                        help='exploration type',
+                        type=str, default='epsilon',
+                        choices=['epsilon', 'boltzmann'])
+
     parser.add_argument(
         '--model_ids',
         type=str,
@@ -319,4 +345,9 @@ if __name__ == '__main__':
         num_eval_env=args.num_eval_env,
         model_ids=args.model_ids,
         model_ids_eval=args.model_ids_eval,
+        num_eval_episodes=args.num_eval_episodes,
+        fine_motion_plan=args.fine_motion_plan == 'true',
+        base_mp_algo=args.base_mp_algo,
+        arm_mp_algo=args.arm_mp_algo,
+        exploration_type=args.exploration_type,
     )

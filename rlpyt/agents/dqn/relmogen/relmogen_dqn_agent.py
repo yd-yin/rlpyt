@@ -6,8 +6,10 @@ from rlpyt.agents.dqn.relmogen.mixin import DictObsMixin
 
 class RelMoGenDqnAgent(DictObsMixin, DqnAgent):
 
-    def __init__(self, ModelCls=RelMoGenDqnModel, **kwargs):
+    def __init__(self, ModelCls=RelMoGenDqnModel,
+                 distribution_type='epsilon', **kwargs):
         super().__init__(ModelCls=ModelCls, **kwargs)
+        self.distribution_type = distribution_type
 
     def initialize(self, env_spaces, share_memory=False,
                    global_B=1, env_ranks=None):

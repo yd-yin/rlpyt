@@ -6,6 +6,8 @@ from torch.nn.parallel import DistributedDataParallelCPU as DDPC
 from rlpyt.agents.base import BaseAgent, AgentStep
 from rlpyt.agents.dqn.epsilon_greedy import EpsilonGreedyAgentMixin
 from rlpyt.distributions.epsilon_greedy import EpsilonGreedy
+from rlpyt.distributions.boltzmann_greedy import BoltzmannGreedy
+
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
 from rlpyt.utils.collections import namedarraytuple
@@ -38,7 +40,11 @@ class DqnAgent(EpsilonGreedyAgentMixin, BaseAgent):
         self.target_model = self.ModelCls(**self.env_model_kwargs,
                                           **self.model_kwargs)
         self.target_model.load_state_dict(self.model.state_dict())
-        self.distribution = EpsilonGreedy(dim=env_spaces.action.n)
+        if self.distribution_type == 'epsilon':
+            self.distribution = EpsilonGreedy(dim=env_spaces.action.n)
+        else:
+            self.distribution = BoltzmannGreedy(dim=env_spaces.action.n)
+
         if env_ranks is not None:
             self.make_vec_eps(global_B, env_ranks)
 
