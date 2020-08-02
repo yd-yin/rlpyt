@@ -167,41 +167,59 @@ class GibsonDqnModel(torch.nn.Module):
         if self.embodiment_mode != 'base':
             vision_feature = self.vision_deconv(vision_feature)
             vision_q_values = self.vision_output(vision_feature)
-            vision_q_values = vision_q_values.view(T * B, -1)
+            # vision_q_values = vision_q_values.view(T * B, -1)
 
         if self.embodiment_mode != 'arm':
             occ_grid_feature = self.occ_grid_deconv(occ_grid_feature)
             occ_grid_q_values = self.occ_grid_output(occ_grid_feature)
-            occ_grid_q_values = occ_grid_q_values.view(T * B, -1)
+            # occ_grid_q_values = occ_grid_q_values.view(T * B, -1)
 
+        # arena = 'tabletop_reaching'
         # Q values visualization
-        # occ_grid_q_values_np = occ_grid_q_values.cpu().numpy().squeeze(0)
+        # occ_grid_q_values_np = occ_grid_q_values.cpu().numpy()
+        # if len(occ_grid_q_values_np.shape) == 4:
+        #     occ_grid_q_values_np = occ_grid_q_values_np.squeeze(0)
         # occ_grid_q_values_np = \
         #     (occ_grid_q_values_np - np.min(occ_grid_q_values_np)) / \
         #     (np.max(occ_grid_q_values_np) - np.min(occ_grid_q_values_np))
         # for i in range(occ_grid_q_values_np.shape[0]):
         #     pred = occ_grid_q_values_np[i]
-        #     cv2.imwrite('vis/button_door/{}_pred_base_{}.png'.format(self.idx, i),
+        #     cv2.imwrite('corl_vis/{}/{}_pred_base_{}.png'.format(arena, self.idx, i),
         #                 (pred * 255).astype(np.uint8))
 
-        # vision_q_values_np = vision_q_values.cpu().numpy().squeeze(0)
+        # vision_q_values_np = vision_q_values.cpu().numpy()
+        # if len(vision_q_values_np.shape) == 4:
+        #     vision_q_values_np = vision_q_values_np.squeeze(0)
         # vision_q_values_np = \
         #     (vision_q_values_np - np.min(vision_q_values_np)) / \
         #     (np.max(vision_q_values_np) - np.min(vision_q_values_np))
         # for i in range(vision_q_values_np.shape[0]):
         #     pred = vision_q_values_np[i]
-        #     cv2.imwrite('vis/button_door/{}_pred_arm_{}.png'.format(self.idx, i),
+        #     cv2.imwrite('corl_vis/{}/{}_pred_arm_{}.png'.format(arena, self.idx, i),
         #                 (pred * 255).astype(np.uint8))
 
-        # occ_grid_np = observation.occupancy_grid.cpu().numpy().squeeze(0)
-        # grid = np.concatenate((occ_grid_np[0], occ_grid_np[1]), axis=1)
-        # cv2.imwrite('vis/button_door/{}_input_occ_grid.png'.format(self.idx),
-        #             (grid * 255).astype(np.uint8))
+        # occ_grid_np = observation.occupancy_grid.cpu().numpy()
+        # if len(occ_grid_np.shape) == 4:
+        #     occ_grid_np = occ_grid_np.squeeze(0)
+        # occ_grid_np = occ_grid_np.transpose(1, 2, 0)
+        # if occ_grid_np.shape[2] > 1:
+        #     occ_grid_np = np.concatenate(
+        #         (occ_grid_np[:, :, 0], occ_grid_np[:, :, 1]), axis=1)
+        # cv2.imwrite('corl_vis/{}/{}_input_occ_grid.png'.format(arena, self.idx),
+        #             (occ_grid_np * 255).astype(np.uint8))
 
-        # rgb_np = observation.rgbd.cpu().numpy()[:3].transpose(1, 2, 0)
+        # rgb_np = observation.rgbd.cpu().numpy()
+        # if len(rgb_np.shape) == 4:
+        #     rgb_np = rgb_np.squeeze(0)
+        # rgb_np = rgb_np[:3].transpose(1, 2, 0)
         # rgb_np = cv2.cvtColor(rgb_np, cv2.COLOR_RGB2BGR)
-        # cv2.imwrite('vis/button_door/{}_input_rgb.png'.format(self.idx),
+        # cv2.imwrite('corl_vis/{}/{}_input_rgb.png'.format(arena, self.idx),
         #             (rgb_np * 255).astype(np.uint8))
+
+        if self.embodiment_mode != 'base':
+            vision_q_values = vision_q_values.view(T * B, -1)
+        if self.embodiment_mode != 'arm':
+            occ_grid_q_values = occ_grid_q_values.view(T * B, -1)
 
         if self.embodiment_mode == 'arm':
             q_value = vision_q_values
@@ -213,4 +231,5 @@ class GibsonDqnModel(torch.nn.Module):
         q_value = restore_leading_dims(q_value, lead_dim, T, B)
 
         # self.idx += 1
+
         return q_value
