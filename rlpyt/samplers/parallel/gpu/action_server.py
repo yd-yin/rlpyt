@@ -39,7 +39,7 @@ class ActionServer:
             to make sure they drain properly.  If a semaphore ends up with an extra release,
             synchronization can be lost silently, leading to wrong and confusing results.
         """
-        obs_ready, act_ready = self.sync.obs_ready, self.sync.act_ready
+        obs_ready, act_ready = self.sync.obs_ready[:self.batch_spec.B], self.sync.act_ready[:self.batch_spec.B]
         step_np, agent_inputs = self.step_buffer_np, self.agent_inputs
 
         for t in range(self.batch_spec.T):
@@ -78,7 +78,7 @@ class ActionServer:
         was specified, keeps track of the number completed and terminates evaluation
         if the max is reached.  Returns a list of completed trajectory-info objects.
         """
-        obs_ready, act_ready = self.sync.obs_ready, self.sync.act_ready
+        obs_ready, act_ready = self.sync.obs_ready[self.batch_spec.B:], self.sync.act_ready[self.batch_spec.B:]
         step_np, step_pyt = self.eval_step_buffer_np, self.eval_step_buffer_pyt
         traj_infos = list()
         self.agent.reset()
@@ -118,6 +118,120 @@ class ActionServer:
             assert not w.acquire(block=False)  # Debug check.
 
         return traj_infos
+
+
+class CONActionServer:
+    """Mixin class with methods for serving actions to worker processes which execute
+    environment steps.
+    """
+
+    def serve_actions(self, itr):
+        """Called in master process during ``obtain_samples()``.
+
+        Performs agent action- selection loop in concert with workers
+        executing environment steps.  Uses shared memory buffers to
+        communicate agent/environment data at each time step.  Uses semaphores
+        for synchronization: one per worker to acquire when they finish
+        writing the next step of observations, one per worker to release when
+        master has written the next actions.  Resets the agent one B-index at a time when the
+        corresponding environment resets (i.e. agent's recurrent state, with
+        leading dimension ``batch_B``).
+
+        Also communicates ``agent_info`` to workers, which are responsible
+        for recording all data into the batch buffer.
+
+        If requested, collects additional agent value estimation of final
+        observation for bootstrapping (the one thing written to the batch
+        buffer here).
+
+
+        .. warning::
+            If trying to modify, must be careful to keep correct logic of the semaphores,
+            to make sure they drain properly.  If a semaphore ends up with an extra release,
+            synchronization can be lost silently, leading to wrong and confusing results.
+        """
+        obs_ready, act_ready = self.sync.obs_ready[:self.batch_spec.B], self.sync.act_ready[:self.batch_spec.B]
+        step_np, agent_inputs = self.step_buffer_np, self.agent_inputs
+
+        for t in range(self.batch_spec.T):
+            for b in obs_ready:
+                b.acquire()  # Workers written obs and rew, first prev_act.
+                # assert not b.acquire(block=False)  # Debug check.
+            if self.mid_batch_reset and np.any(step_np.done):
+                for b_reset in np.where(step_np.done)[0]:
+                    step_np.action[b_reset] = 0  # Null prev_action into agent.
+                    step_np.reward[b_reset] = 0  # Null prev_reward into agent.
+                    self.agent.reset_one(idx=b_reset)
+            action, agent_info, feature = self.agent.step(*agent_inputs)
+            step_np.action[:] = action  # Worker applies to env.
+            step_np.agent_info[:] = agent_info  # Worker sends to traj_info.
+            step_np.feature[:] = feature
+            for w in act_ready:
+                # assert not w.acquire(block=False)  # Debug check.
+                w.release()  # Signal to worker.
+
+        for b in obs_ready:
+            b.acquire()
+            assert not b.acquire(block=False)  # Debug check.
+        if "bootstrap_value" in self.samples_np.agent:
+            self.samples_np.agent.bootstrap_value[:] = self.agent.value(
+                *agent_inputs)
+        if np.any(step_np.done):  # Reset at end of batch; ready for next.
+            for b_reset in np.where(step_np.done)[0]:
+                step_np.action[b_reset] = 0  # Null prev_action into agent.
+                step_np.reward[b_reset] = 0  # Null prev_reward into agent.
+                self.agent.reset_one(idx=b_reset)
+            # step_np.done[:] = False  # Worker resets at start of next.
+        for w in act_ready:
+            assert not w.acquire(block=False)  # Debug check.
+
+    def serve_actions_evaluation(self, itr):
+        """Similar to ``serve_actions()``.  If a maximum number of eval trajectories
+        was specified, keeps track of the number completed and terminates evaluation
+        if the max is reached.  Returns a list of completed trajectory-info objects.
+        """
+        obs_ready, act_ready = self.sync.obs_ready[self.batch_spec.B:], self.sync.act_ready[self.batch_spec.B:]
+        step_np, step_pyt = self.eval_step_buffer_np, self.eval_step_buffer_pyt
+        traj_infos = list()
+        self.agent.reset()
+        agent_inputs = AgentInputs(step_pyt.observation, step_pyt.action,
+            step_pyt.reward)  # Fixed buffer objects.
+
+        for t in range(self.eval_max_T):
+            if t % EVAL_TRAJ_CHECK == 0:  # (While workers stepping.)
+                traj_infos.extend(drain_queue(self.eval_traj_infos_queue,
+                    guard_sentinel=True))
+            for b in obs_ready:
+                b.acquire()
+                # assert not b.acquire(block=False)  # Debug check.
+            for b_reset in np.where(step_np.done)[0]:
+                step_np.action[b_reset] = 0  # Null prev_action.
+                step_np.reward[b_reset] = 0  # Null prev_reward.
+                self.agent.reset_one(idx=b_reset)
+            action, agent_info = self.agent.step(*agent_inputs)
+            step_np.action[:] = action
+            step_np.agent_info[:] = agent_info
+            if self.eval_max_trajectories is not None and t % EVAL_TRAJ_CHECK == 0:
+                self.sync.stop_eval.value = len(traj_infos) >= self.eval_max_trajectories
+            for w in act_ready:
+                # assert not w.acquire(block=False)  # Debug check.
+                w.release()
+            if self.sync.stop_eval.value:
+                logger.log("Evaluation reach max num trajectories "
+                    f"({self.eval_max_trajectories}).")
+                break
+        if t == self.eval_max_T - 1 and self.eval_max_trajectories is not None:
+            logger.log("Evaluation reached max num time steps "
+                f"({self.eval_max_T}).")
+        for b in obs_ready:
+            b.acquire()  # Workers always do extra release; drain it.
+            assert not b.acquire(block=False)  # Debug check.
+        for w in act_ready:
+            assert not w.acquire(block=False)  # Debug check.
+
+        return traj_infos
+
+
 
 
 class AlternatingActionServer:

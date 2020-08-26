@@ -2,6 +2,7 @@
 import psutil
 import time
 import torch
+import numpy as np
 
 from rlpyt.utils.collections import AttrDict
 from rlpyt.utils.logging import logger
@@ -34,7 +35,7 @@ def initialize_worker(rank, seed=None, cpu=None, torch_threads=None):
     logger.log(log_str)
 
 
-def sampling_process(common_kwargs, worker_kwargs):
+def sampling_process(common_kwargs, worker_kwargs, index=None):
     """Target function used for forking parallel worker processes in the
     samplers. After ``initialize_worker()``, it creates the specified number
     of environment instances and gives them to the collector when
@@ -46,27 +47,55 @@ def sampling_process(common_kwargs, worker_kwargs):
     training samples or else run evaluation, until signaled to exit.
     """
     c, w = AttrDict(**common_kwargs), AttrDict(**worker_kwargs)
+    env_len = len(c.env_kwargs['scene_names'])
     initialize_worker(w.rank, w.seed, w.cpus, c.torch_threads)
-    envs = [c.EnvCls(**c.env_kwargs) for _ in range(w.n_envs)]
-    set_envs_seeds(envs, w.seed)
 
-    collector = c.CollectorCls(
-        rank=w.rank,
-        envs=envs,
-        samples_np=w.samples_np,
-        batch_T=c.batch_T,
-        TrajInfoCls=c.TrajInfoCls,
-        agent=c.get("agent", None),  # Optional depending on parallel setup.
-        sync=w.get("sync", None),
-        step_buffer_np=w.get("step_buffer_np", None),
-        global_B=c.get("global_B", 1),
-        env_ranks=w.get("env_ranks", None),
-    )
-    agent_inputs, traj_infos = collector.start_envs(c.max_decorrelation_steps)
-    collector.start_agent()
+    if w.get("n_envs", 0) > 0:
+        # print('\n\n\n')
+        # print('w.rank', w.rank)         # rank is the index of the subprocess, within range(batch_B)
+        # print('w.n_envs', w.n_envs)     # always equals to 1
+        # print('env_len', env_len)       # number of input envs
+        # print('global_B', c.global_B)   # equals to batch_B
+        # print(w.keys())                 # dict_keys(['rank', 'env_ranks', 'seed', 'cpus', 'n_envs', 'eval_n_envs', 'samples_np', 'sync', 'step_buffer_np'])
+        # print(c.keys())                 # dict_keys(['EnvCls', 'env_kwargs', 'agent', 'batch_T', 'CollectorCls', 'TrajInfoCls', 'traj_infos_queue', 'ctrl', 'max_decorrelation_steps', 'torch_threads', 'global_B'])
+        # print('\n\n\n')
 
-    if c.get("eval_n_envs", 0) > 0:
-        eval_envs = [c.EnvCls(**c.eval_env_kwargs) for _ in range(c.eval_n_envs)]
+        # Pass `w.rank` to env creation for training on different scenes
+        batch_B = c.global_B
+        if env_len <= batch_B:
+            scene_idx = w.rank % env_len
+        else:
+            print('\nThe batch_B is smaller than #training_envs, random select a training_env for each process\n')
+            #scene_idx = np.random.randint(env_len)
+            scene_idx = index
+
+
+        envs = [c.EnvCls(**c.env_kwargs, scene_idx=scene_idx, worker_id=w.rank) for _ in range(w.n_envs)]
+        # print('length of envs:', len(envs))     # always equals to 1
+        # print('Env:', envs[0].scene_dir)        # indicating the scene in current subprocess
+        set_envs_seeds(envs, w.seed)
+        collector = c.CollectorCls(
+            rank=w.rank,
+            envs=envs,
+            samples_np=w.samples_np,
+            batch_T=c.batch_T,
+            TrajInfoCls=c.TrajInfoCls,
+            agent=c.get("agent", None),  # Optional depending on parallel setup.
+            sync=w.get("sync", None),
+            step_buffer_np=w.get("step_buffer_np", None),
+            global_B=c.get("global_B", 1),
+            env_ranks=w.get("env_ranks", None),
+        )
+        agent_inputs, traj_infos = collector.start_envs(c.max_decorrelation_steps)
+        collector.start_agent()
+        
+
+    else:
+        envs = []
+        collector = None
+
+    if w.get("eval_n_envs", 0) > 0:
+        eval_envs = [c.EnvCls(**c.eval_env_kwargs) for _ in range(w.eval_n_envs)]
         set_envs_seeds(eval_envs, w.seed)
         eval_collector = c.eval_CollectorCls(
             rank=w.rank,
@@ -78,23 +107,28 @@ def sampling_process(common_kwargs, worker_kwargs):
             sync=w.get("sync", None),
             step_buffer_np=w.get("eval_step_buffer_np", None),
         )
+
     else:
         eval_envs = list()
+        eval_collector = None
 
     ctrl = c.ctrl
     ctrl.barrier_out.wait()
     while True:
-        collector.reset_if_needed(agent_inputs)  # Outside barrier?
+        if collector is not None:
+            collector.reset_if_needed(agent_inputs)  # Outside barrier?
         ctrl.barrier_in.wait()
         if ctrl.quit.value:
             break
         if ctrl.do_eval.value:
-            eval_collector.collect_evaluation(ctrl.itr.value)  # Traj_infos to queue inside.
+            if eval_collector is not None:
+                eval_collector.collect_evaluation(ctrl.itr.value)  # Traj_infos to queue inside.
         else:
-            agent_inputs, traj_infos, completed_infos = collector.collect_batch(
-                agent_inputs, traj_infos, ctrl.itr.value)
-            for info in completed_infos:
-                c.traj_infos_queue.put(info)
+            if collector is not None:
+                agent_inputs, traj_infos, completed_infos = collector.collect_batch(
+                    agent_inputs, traj_infos, ctrl.itr.value)
+                for info in completed_infos:
+                    c.traj_infos_queue.put(info)
         ctrl.barrier_out.wait()
 
     for env in envs + eval_envs:

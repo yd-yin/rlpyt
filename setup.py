@@ -16,7 +16,7 @@ setuptools.setup(
     version='0.1.2',
     packages=setuptools.find_packages(),
     license='MIT License',
-    long_description=open('README.md').read(),
+    # long_description=open('README.md').read(),
     install_requires=INSTALL_REQUIRES,
     extras_require={
         'test': TEST_REQUIRES + INSTALL_REQUIRES,

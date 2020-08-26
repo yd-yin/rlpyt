@@ -6,7 +6,7 @@ from rlpyt.agents.base import (AgentStep, BaseAgent, RecurrentAgentMixin,
 from rlpyt.agents.pg.base import AgentInfo, AgentInfoRnn
 from rlpyt.distributions.categorical import Categorical, DistInfo
 from rlpyt.utils.buffer import buffer_to, buffer_func, buffer_method
-
+import numpy as np
 
 class CategoricalPgAgent(BaseAgent):
     """

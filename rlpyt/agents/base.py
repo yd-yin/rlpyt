@@ -13,6 +13,9 @@ AgentInputs = namedarraytuple("AgentInputs",
     ["observation", "prev_action", "prev_reward"])
 AgentStep = namedarraytuple("AgentStep", ["action", "agent_info"])
 
+CONAgentInputs = namedarraytuple("AgentInputs",
+    ["observation", "feature"])
+CONAgentStep = namedarraytuple("AgentStep", ["action", "agent_info", "feature"])
 
 class BaseAgent:
     """
@@ -88,6 +91,7 @@ class BaseAgent:
             # model gets moved to GPU later:
             self.shared_model = self.model
         if self.initial_model_state_dict is not None:
+            print('Load initial model state dict.')
             self.model.load_state_dict(self.initial_model_state_dict)
         self.env_spaces = env_spaces
         self.share_memory = share_memory
@@ -113,6 +117,8 @@ class BaseAgent:
             self.model.load_state_dict(self.shared_model.state_dict())
         self.device = torch.device("cuda", index=cuda_idx)
         self.model.to(self.device)
+        self.model.set_device(self.device)
+        #self.model = torch.nn.DataParallel(self.model, device_ids=[0, 1, 2, 3])
         logger.log(f"Initialized agent model on device: {self.device}.")
 
     def data_parallel(self):

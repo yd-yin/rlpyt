@@ -7,9 +7,9 @@ from rlpyt.algos.utils import (discount_return, generalized_advantage_estimation
     valid_from_done)
 
 # Convention: traj_info fields CamelCase, opt_info fields lowerCamelCase
-OptInfo = namedtuple("OptInfo", ["loss", "gradNorm", "entropy", "perplexity"])
+OptInfo = namedtuple("OptInfo", ["loss", "pi_loss", "value_loss", "gradNorm", "entropy", "perplexity"])
 AgentTrain = namedtuple("AgentTrain", ["dist_info", "value"])
-
+ConOptInfo = namedtuple("OptInfo", ["loss", "pi_loss", "value_loss", "gradNorm", "entropy", "perplexity"])
 
 class PolicyGradientAlgo(RlAlgorithm):
     """

@@ -1,9 +1,10 @@
 
 import numpy as np
 
-from rlpyt.samplers.collectors import (DecorrelatingStartCollector,
+from rlpyt.samplers.collectors import (DecorrelatingStartCollector, CONDecorrelatingStartCollector,
     BaseEvalCollector)
 from rlpyt.utils.buffer import buffer_method
+from rlpyt.agents.base import AgentInputs, CONAgentInputs
 
 
 class GpuResetCollector(DecorrelatingStartCollector):
@@ -48,6 +49,55 @@ class GpuResetCollector(DecorrelatingStartCollector):
             obs_ready.release()  # Ready for server to use/write step buffer.
 
         return None, traj_infos, completed_infos
+
+class CONGpuResetCollector(CONDecorrelatingStartCollector):
+    """Collector which communicates observations to an action-server, which in
+    turn provides the agent's actions (i.e. use in GPU samplers).
+
+    Environment reset logic is the same as in ``CpuResetCollector``.
+    """
+
+    mid_batch_reset = True
+
+    def collect_batch(self, agent_inputs, traj_infos, itr):
+        """Params agent_inputs and itr unused."""
+        act_ready, obs_ready = self.sync.act_ready, self.sync.obs_ready
+        step = self.step_buffer_np
+        agent_buf, env_buf = self.samples_np.agent, self.samples_np.env
+        obs_ready.release()  # Previous obs already written, ready for new.
+        completed_infos = list()
+        for t in range(self.batch_T):
+            env_buf.observation[t] = step.observation
+            if (t == 0):
+                for b, env in enumerate(self.envs):
+                    agent_buf.feature[t][b] = env.getFeature()
+            else:
+                agent_buf.feature[t] = feature_backup
+            act_ready.acquire()  # Need sampled actions from server.
+            for b, env in enumerate(self.envs):
+                o, r, d, env_info = env.step(step.action[b])
+                traj_infos[b].step(step.observation[b], step.action[b], r, d,
+                    step.agent_info[b], env_info)
+                if getattr(env_info, "traj_done", d):
+                    completed_infos.append(traj_infos[b].terminate(o))
+                    traj_infos[b] = self.TrajInfoCls()
+                    o = env.reset()
+                    step.feature[b, :, 13] = 0
+                step.observation[b] = o
+                step.reward[b] = r
+                step.done[b] = d
+                if env_info:
+                    env_buf.env_info[t, b] = env_info
+            agent_buf.action[t] = step.action  # OPTIONAL BY SERVER
+            env_buf.reward[t] = step.reward
+            env_buf.done[t] = step.done
+            feature_backup = step.feature.copy()
+            if step.agent_info:
+                agent_buf.agent_info[t] = step.agent_info  # OPTIONAL BY SERVER
+            obs_ready.release()  # Ready for server to use/write step buffer.
+
+        return None, traj_infos, completed_infos
+
 
 
 class GpuWaitResetCollector(DecorrelatingStartCollector):
@@ -159,3 +209,5 @@ class GpuEvalCollector(BaseEvalCollector):
                 step.done[b] = d
             obs_ready.release()
         self.traj_infos_queue.put(None)  # End sentinel.
+    
+        

@@ -12,7 +12,6 @@ from rlpyt.utils.logging import logger
 
 LOG_DIR = osp.abspath(osp.join(osp.dirname(__file__), '../../../data'))
 
-
 def get_log_dir(experiment_name, root_log_dir=None, date=True):
     yyyymmdd_hhmmss = datetime.datetime.today().strftime("%Y%m%d-%H%M%S")
     yyyymmdd, hhmmss = yyyymmdd_hhmmss.split("-")
@@ -74,7 +73,7 @@ def logger_context(
     log_params["name"] = name
     log_params["run_ID"] = run_ID
     with open(params_log_file, "w") as f:
-        json.dump(log_params, f, default=lambda o: type(o).__name__)
+        json.dump(log_params, f, indent=1, default=lambda o: type(o).__name__)
 
     yield
 
