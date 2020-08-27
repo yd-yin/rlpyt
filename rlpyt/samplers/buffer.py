@@ -26,8 +26,11 @@ def build_samples_buffer(agent, env_cls, env_kwargs, batch_spec,
             w.start()
             w.join()
             examples = dict(examples)
-            examples["env_info"] = namedtuple("info",
-                                              list(examples["env_info"]))()
+            examples["env_info"] = namedtuple("info", list(examples["env_info"]))(
+                succ=False,
+                var_succ=False,
+                timeout=False,
+            )
         else:
             examples = dict()
             get_example_outputs(agent, env_cls, env_kwargs,
@@ -86,6 +89,8 @@ def get_example_outputs(agent, env_cls, env_kwargs, examples, subprocess=False):
     o = env.reset()
     a = env.action_space.sample()
     o, r, d, env_info = env.step(a)
+    env.close()
+
     # Must match torch float dtype here.
     r = np.asarray(r, dtype="float32")
     agent.reset()
