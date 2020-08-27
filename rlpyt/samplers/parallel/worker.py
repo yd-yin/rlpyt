@@ -47,26 +47,30 @@ def sampling_process(common_kwargs, worker_kwargs):
     """
     c, w = AttrDict(**common_kwargs), AttrDict(**worker_kwargs)
     initialize_worker(w.rank, w.seed, w.cpus, c.torch_threads)
-    envs = [c.EnvCls(**c.env_kwargs) for _ in range(w.n_envs)]
-    set_envs_seeds(envs, w.seed)
 
-    collector = c.CollectorCls(
-        rank=w.rank,
-        envs=envs,
-        samples_np=w.samples_np,
-        batch_T=c.batch_T,
-        TrajInfoCls=c.TrajInfoCls,
-        agent=c.get("agent", None),  # Optional depending on parallel setup.
-        sync=w.get("sync", None),
-        step_buffer_np=w.get("step_buffer_np", None),
-        global_B=c.get("global_B", 1),
-        env_ranks=w.get("env_ranks", None),
-    )
-    agent_inputs, traj_infos = collector.start_envs(c.max_decorrelation_steps)
-    collector.start_agent()
+    if w.get("n_envs", 0) > 0:
+        envs = [c.EnvCls(**c.env_kwargs) for _ in range(w.n_envs)]
+        set_envs_seeds(envs, w.seed)
+        collector = c.CollectorCls(
+            rank=w.rank,
+            envs=envs,
+            samples_np=w.samples_np,
+            batch_T=c.batch_T,
+            TrajInfoCls=c.TrajInfoCls,
+            agent=c.get("agent", None),  # Optional depending on parallel setup.
+            sync=w.get("sync", None),
+            step_buffer_np=w.get("step_buffer_np", None),
+            global_B=c.get("global_B", 1),
+            env_ranks=w.get("env_ranks", None),
+        )
+        agent_inputs, traj_infos = collector.start_envs(c.max_decorrelation_steps)
+        collector.start_agent()
+    else:
+        envs = []
+        collector = None
 
-    if c.get("eval_n_envs", 0) > 0:
-        eval_envs = [c.EnvCls(**c.eval_env_kwargs) for _ in range(c.eval_n_envs)]
+    if w.get("eval_n_envs", 0) > 0:
+        eval_envs = [c.EnvCls(**c.eval_env_kwargs) for _ in range(w.eval_n_envs)]
         set_envs_seeds(eval_envs, w.seed)
         eval_collector = c.eval_CollectorCls(
             rank=w.rank,
@@ -80,21 +84,25 @@ def sampling_process(common_kwargs, worker_kwargs):
         )
     else:
         eval_envs = list()
+        eval_collector = None
 
     ctrl = c.ctrl
     ctrl.barrier_out.wait()
     while True:
-        collector.reset_if_needed(agent_inputs)  # Outside barrier?
+        if collector is not None:
+            collector.reset_if_needed(agent_inputs)  # Outside barrier?
         ctrl.barrier_in.wait()
         if ctrl.quit.value:
             break
         if ctrl.do_eval.value:
-            eval_collector.collect_evaluation(ctrl.itr.value)  # Traj_infos to queue inside.
+            if eval_collector is not None:
+                eval_collector.collect_evaluation(ctrl.itr.value)  # Traj_infos to queue inside.
         else:
-            agent_inputs, traj_infos, completed_infos = collector.collect_batch(
-                agent_inputs, traj_infos, ctrl.itr.value)
-            for info in completed_infos:
-                c.traj_infos_queue.put(info)
+            if collector is not None:
+                agent_inputs, traj_infos, completed_infos = collector.collect_batch(
+                    agent_inputs, traj_infos, ctrl.itr.value)
+                for info in completed_infos:
+                    c.traj_infos_queue.put(info)
         ctrl.barrier_out.wait()
 
     for env in envs + eval_envs:

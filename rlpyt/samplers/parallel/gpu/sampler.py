@@ -5,13 +5,16 @@ from rlpyt.agents.base import AgentInputs
 from rlpyt.samplers.parallel.base import ParallelSamplerBase
 from rlpyt.samplers.parallel.gpu.action_server import ActionServer
 from rlpyt.samplers.parallel.gpu.collectors import (GpuResetCollector,
-    GpuEvalCollector)
+                                                    GpuEvalCollector)
 from rlpyt.utils.collections import namedarraytuple, AttrDict
 from rlpyt.utils.synchronize import drain_queue
 from rlpyt.utils.buffer import buffer_from_example, torchify_buffer
+from rlpyt.envs.base import EnvSpaces
+from rlpyt.spaces.gym_wrapper import GymSpaceWrapper
+
 
 StepBuffer = namedarraytuple("StepBuffer",
-    ["observation", "action", "reward", "done", "agent_info"])
+                             ["observation", "action", "reward", "done", "agent_info"])
 
 
 class GpuSamplerBase(ParallelSamplerBase):
@@ -24,7 +27,7 @@ class GpuSamplerBase(ParallelSamplerBase):
     buffer over shared memory, which is used for communication with workers.
     The step buffer includes `observations`, which the workers write and the
     master reads, and `actions`, which the master write and the workers read.
-    (The step buffer has leading dimension [`batch_B`], for the number of 
+    (The step buffer has leading dimension [`batch_B`], for the number of
     parallel environments, and each worker gets its own slice along that
     dimension.)  The step buffer object is held in both numpy array and torch
     tensor forms over the same memory; e.g. workers write to the numpy array
@@ -37,10 +40,10 @@ class GpuSamplerBase(ParallelSamplerBase):
     gpu = True
 
     def __init__(self, *args, CollectorCls=GpuResetCollector,
-            eval_CollectorCls=GpuEvalCollector, **kwargs):
+                 eval_CollectorCls=GpuEvalCollector, **kwargs):
         # e.g. or use GpuWaitResetCollector, etc...
         super().__init__(*args, CollectorCls=CollectorCls,
-            eval_CollectorCls=eval_CollectorCls, **kwargs)
+                         eval_CollectorCls=eval_CollectorCls, **kwargs)
 
     def obtain_samples(self, itr):
         """Signals worker to begin environment step execution loop, and drops
@@ -67,16 +70,47 @@ class GpuSamplerBase(ParallelSamplerBase):
         traj_infos = self.serve_actions_evaluation(itr)
         self.ctrl.barrier_out.wait()
         traj_infos.extend(drain_queue(self.eval_traj_infos_queue,
-            n_sentinel=self.n_worker))  # Block until all finish submitting.
+                                      n_sentinel=self.eval_n_envs))  # Block until all finish submitting.
         self.ctrl.do_eval.value = False
         return traj_infos
 
-    def _agent_init(self, agent, env, global_B=1, env_ranks=None):
+    def _agent_init(self, agent, env_cls, env_kwargs,
+                    global_B=1, env_ranks=None, env_spaces=None):
         """Initializes the agent, having it *not* share memory, because all
         agent functions (training and sampling) happen in the master process,
         presumably on GPU."""
-        agent.initialize(env.spaces, share_memory=False,  # No share memory.
-            global_B=global_B, env_ranks=env_ranks)
+
+        if env_spaces is None:
+            def target(env_cls, env_kwargs, storage):
+                if 'mode' in env_kwargs:
+                    env_kwargs['mode'] = 'headless'
+                env = env_cls(**env_kwargs)
+                storage['observation_space'] = env.env.observation_space
+                storage['action_space'] = env.env.action_space
+                env.close()
+
+            mgr = mp.Manager()
+            storage = mgr.dict()
+            w = mp.Process(target=target, args=(env_cls, env_kwargs, storage))
+            w.start()
+            w.join()
+            env_spaces = EnvSpaces(
+                observation=GymSpaceWrapper(
+                    space=storage['observation_space'],
+                    name="obs",
+                    null_value=0,
+                    force_float32=True,
+                ),
+                action=GymSpaceWrapper(
+                    space=storage['action_space'],
+                    name="act",
+                    null_value=0,
+                    force_float32=True,
+                )
+            )
+
+        agent.initialize(env_spaces, share_memory=False,
+                         global_B=global_B, env_ranks=env_ranks)
         self.agent = agent
 
     def _build_buffers(self, *args, **kwargs):
@@ -84,7 +118,7 @@ class GpuSamplerBase(ParallelSamplerBase):
         self.step_buffer_pyt, self.step_buffer_np = build_step_buffer(
             examples, self.batch_spec.B)
         self.agent_inputs = AgentInputs(self.step_buffer_pyt.observation,
-            self.step_buffer_pyt.action, self.step_buffer_pyt.reward)
+                                        self.step_buffer_pyt.action, self.step_buffer_pyt.reward)
         if self.eval_n_envs > 0:
             self.eval_step_buffer_pyt, self.eval_step_buffer_np = \
                 build_step_buffer(examples, self.eval_n_envs)
@@ -106,11 +140,11 @@ class GpuSamplerBase(ParallelSamplerBase):
         return common_kwargs
 
     def _assemble_workers_kwargs(self, affinity, seed, n_envs_list):
-        workers_kwargs = super()._assemble_workers_kwargs(affinity, seed,
-            n_envs_list)
+        workers_kwargs = super()._assemble_workers_kwargs(affinity, seed, n_envs_list)
         i_env = 0
+        rank_with_eval = 0
         for rank, w_kwargs in enumerate(workers_kwargs):
-            n_envs = n_envs_list[rank]
+            n_envs, eval_n_envs = n_envs_list[rank]
             slice_B = slice(i_env, i_env + n_envs)
             w_kwargs["sync"] = AttrDict(
                 stop_eval=self.sync.stop_eval,
@@ -118,11 +152,12 @@ class GpuSamplerBase(ParallelSamplerBase):
                 act_ready=self.sync.act_ready[rank],
             )
             w_kwargs["step_buffer_np"] = self.step_buffer_np[slice_B]
-            if self.eval_n_envs > 0:
-                eval_slice_B = slice(self.eval_n_envs_per * rank,
-                    self.eval_n_envs_per * (rank + 1))
+            if eval_n_envs > 0:
+                eval_slice_B = slice(self.eval_n_envs_per * rank_with_eval,
+                                     self.eval_n_envs_per * (rank_with_eval + 1))
                 w_kwargs["eval_step_buffer_np"] = \
                     self.eval_step_buffer_np[eval_slice_B]
+                rank_with_eval += 1
             i_env += n_envs
         return workers_kwargs
 
@@ -133,7 +168,7 @@ class GpuSampler(ActionServer, GpuSamplerBase):
 
 def build_step_buffer(examples, B):
     step_bufs = {k: buffer_from_example(examples[k], B, share_memory=True)
-        for k in ["observation", "action", "reward", "done", "agent_info"]}
+                 for k in ["observation", "action", "reward", "done", "agent_info"]}
     step_buffer_np = StepBuffer(**step_bufs)
     step_buffer_pyt = torchify_buffer(step_buffer_np)
     return step_buffer_pyt, step_buffer_np

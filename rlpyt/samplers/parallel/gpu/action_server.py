@@ -39,7 +39,7 @@ class ActionServer:
             to make sure they drain properly.  If a semaphore ends up with an extra release,
             synchronization can be lost silently, leading to wrong and confusing results.
         """
-        obs_ready, act_ready = self.sync.obs_ready, self.sync.act_ready
+        obs_ready, act_ready = self.sync.obs_ready[:self.batch_spec.B], self.sync.act_ready[:self.batch_spec.B]
         step_np, agent_inputs = self.step_buffer_np, self.agent_inputs
 
         for t in range(self.batch_spec.T):
@@ -78,7 +78,7 @@ class ActionServer:
         was specified, keeps track of the number completed and terminates evaluation
         if the max is reached.  Returns a list of completed trajectory-info objects.
         """
-        obs_ready, act_ready = self.sync.obs_ready, self.sync.act_ready
+        obs_ready, act_ready = self.sync.obs_ready[self.batch_spec.B:], self.sync.act_ready[self.batch_spec.B:]
         step_np, step_pyt = self.eval_step_buffer_np, self.eval_step_buffer_pyt
         traj_infos = list()
         self.agent.reset()

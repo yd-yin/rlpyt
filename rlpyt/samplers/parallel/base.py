@@ -1,6 +1,8 @@
+
 import multiprocessing as mp
 import ctypes
 import time
+import dill
 from IPython import embed
 import sys
 import os
@@ -46,11 +48,13 @@ class ParallelSamplerBase(BaseSampler):
         (which may differ by sub-class) and to pre-allocate batch buffers, then deletes
         the environment instance.  Batch buffers are allocated on shared memory, so
         that worker processes can read/write directly to them.
+
         Computes the number of parallel processes based on the ``affinity``
         argument.  Forks worker processes, which instantiate their own environment
         and collector objects.  Waits for the worker process to complete all initialization
         (such as decorrelating environment states) before returning.  Barriers and other
         parallel indicators are constructed to manage worker processes.
+
         .. warning::
             If doing offline agent evaluation, will use at least one evaluation environment
             instance per parallel worker, which might increase the total
@@ -297,7 +301,6 @@ class ParallelSamplerBase(BaseSampler):
                       if affinity.get("set_affinity", True) else None),
                 n_envs=n_envs,
                 eval_n_envs=eval_n_envs,
-                model_id=affinity["model_ids"][rank],
                 samples_np=self.samples_np[:, slice_B],
                 sync=self.sync,  # Only for eval, on CPU.
             )

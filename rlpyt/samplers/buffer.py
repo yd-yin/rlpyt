@@ -1,12 +1,13 @@
 
 import multiprocessing as mp
 import numpy as np
+from IPython import embed
 from collections import namedtuple
 
 from rlpyt.utils.buffer import buffer_from_example, torchify_buffer
 from rlpyt.agents.base import AgentInputs
 from rlpyt.samplers.collections import (Samples, AgentSamples, AgentSamplesBsv,
-    EnvSamples)
+                                        EnvSamples)
 
 
 def build_samples_buffer(agent, env_cls, env_kwargs, batch_spec,
@@ -25,21 +26,13 @@ def build_samples_buffer(agent, env_cls, env_kwargs, batch_spec,
             w.start()
             w.join()
             examples = dict(examples)
-            examples["env_info"] = namedtuple(
-                "info",
-                list(examples["env_info"]))(
-                success=True,
-                episode_length=25,
-                collision_step=0,
-                episode_return=0,
-                path_length=10,
-                geodesic_dist=10,
-                spl=1,
-            )
+            examples["env_info"] = namedtuple("info",
+                                              list(examples["env_info"]))()
         else:
             examples = dict()
             get_example_outputs(agent, env_cls, env_kwargs,
                                 examples, subprocess)
+
     T, B = batch_spec
     all_action = buffer_from_example(
         examples["action"], (T + 1, B), agent_shared)
@@ -57,6 +50,7 @@ def build_samples_buffer(agent, env_cls, env_kwargs, batch_spec,
         bv = buffer_from_example(
             examples["agent_info"].value, (1, B), agent_shared)
         agent_buffer = AgentSamplesBsv(*agent_buffer, bootstrap_value=bv)
+
     observation = buffer_from_example(
         examples["observation"], (T, B), env_shared)
     all_reward = buffer_from_example(
@@ -92,8 +86,6 @@ def get_example_outputs(agent, env_cls, env_kwargs, examples, subprocess=False):
     o = env.reset()
     a = env.action_space.sample()
     o, r, d, env_info = env.step(a)
-    env.close()
-
     # Must match torch float dtype here.
     r = np.asarray(r, dtype="float32")
     agent.reset()
@@ -109,4 +101,3 @@ def get_example_outputs(agent, env_cls, env_kwargs, examples, subprocess=False):
     examples["env_info"] = env_info._fields
     examples["action"] = a  # OK to put torch tensor here, could numpify.
     examples["agent_info"] = agent_info
-
