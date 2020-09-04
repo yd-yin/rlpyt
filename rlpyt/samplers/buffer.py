@@ -30,6 +30,8 @@ def build_samples_buffer(agent, env_cls, env_kwargs, batch_spec,
                 succ=False,
                 var_succ=False,
                 timeout=False,
+                outbounds=False,
+                getnan=False,
             )
         else:
             examples = dict()
