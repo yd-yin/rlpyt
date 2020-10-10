@@ -74,7 +74,7 @@ def logger_context(
     log_params["name"] = name
     log_params["run_ID"] = run_ID
     with open(params_log_file, "w") as f:
-        json.dump(log_params, f, default=lambda o: type(o).__name__)
+        json.dump(log_params, f, indent=1, default=lambda o: type(o).__name__)
 
     yield
 
