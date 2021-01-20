@@ -49,7 +49,15 @@ def sampling_process(common_kwargs, worker_kwargs):
     initialize_worker(w.rank, w.seed, w.cpus, c.torch_threads)
 
     if w.get("n_envs", 0) > 0:
-        envs = [c.EnvCls(**c.env_kwargs) for _ in range(w.n_envs)]
+        # print('\n\n\n')
+        # print(w.rank)
+        # print(w.n_envs)
+        # print(c.EnvCls)
+        # print('\n\n\n')
+
+        # Pass `w.rank` to env creation for training on different scenes
+        # mod 5: `w.rank` == parallel batch_B. Assume total 5 envs, so scene_idx
+        envs = [c.EnvCls(**c.env_kwargs, scene_idx=w.rank % c.global_B) for _ in range(w.n_envs)]
         set_envs_seeds(envs, w.seed)
         collector = c.CollectorCls(
             rank=w.rank,
