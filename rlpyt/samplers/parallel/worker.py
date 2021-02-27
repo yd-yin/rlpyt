@@ -46,6 +46,7 @@ def sampling_process(common_kwargs, worker_kwargs):
     training samples or else run evaluation, until signaled to exit.
     """
     c, w = AttrDict(**common_kwargs), AttrDict(**worker_kwargs)
+    env_len = len(c.env_kwargs['scene_names'])
     initialize_worker(w.rank, w.seed, w.cpus, c.torch_threads)
 
     if w.get("n_envs", 0) > 0:
@@ -57,7 +58,7 @@ def sampling_process(common_kwargs, worker_kwargs):
 
         # Pass `w.rank` to env creation for training on different scenes
         # mod 5: `w.rank` == parallel batch_B. Assume total 5 envs, so scene_idx
-        envs = [c.EnvCls(**c.env_kwargs, scene_idx=w.rank % c.global_B) for _ in range(w.n_envs)]
+        envs = [c.EnvCls(**c.env_kwargs, scene_idx=w.rank % env_len) for _ in range(w.n_envs)]
         set_envs_seeds(envs, w.seed)
         collector = c.CollectorCls(
             rank=w.rank,
