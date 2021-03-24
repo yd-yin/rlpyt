@@ -2,6 +2,7 @@
 import psutil
 import time
 import torch
+import numpy as np
 
 from rlpyt.utils.collections import AttrDict
 from rlpyt.utils.logging import logger
@@ -51,14 +52,24 @@ def sampling_process(common_kwargs, worker_kwargs):
 
     if w.get("n_envs", 0) > 0:
         # print('\n\n\n')
-        # print(w.rank)
-        # print(w.n_envs)
-        # print(c.EnvCls)
+        # print('w.rank', w.rank)         # rank is the index of the subprocess, within range(batch_B)
+        # print('w.n_envs', w.n_envs)     # always equals to 1
+        # print('env_len', env_len)       # number of input envs
+        # print('global_B', c.global_B)   # equals to batch_B
+        # print(w.keys())                 # dict_keys(['rank', 'env_ranks', 'seed', 'cpus', 'n_envs', 'eval_n_envs', 'samples_np', 'sync', 'step_buffer_np'])
+        # print(c.keys())                 # dict_keys(['EnvCls', 'env_kwargs', 'agent', 'batch_T', 'CollectorCls', 'TrajInfoCls', 'traj_infos_queue', 'ctrl', 'max_decorrelation_steps', 'torch_threads', 'global_B'])
         # print('\n\n\n')
 
         # Pass `w.rank` to env creation for training on different scenes
-        # mod 5: `w.rank` == parallel batch_B. Assume total 5 envs, so scene_idx
-        envs = [c.EnvCls(**c.env_kwargs, scene_idx=w.rank % env_len) for _ in range(w.n_envs)]
+        batch_B = c.global_B
+        if env_len <= batch_B:
+            scene_idx = w.rank % env_len
+        else:
+            print('\nThe batch_B is smaller than #training_envs, random select a training_env for each process\n')
+            scene_idx = np.random.randint(env_len)
+        envs = [c.EnvCls(**c.env_kwargs, scene_idx=scene_idx) for _ in range(w.n_envs)]
+        # print('length of envs:', len(envs))     # always equals to 1
+        # print('Env:', envs[0].scene_dir)        # indicating the scene in current subprocess
         set_envs_seeds(envs, w.seed)
         collector = c.CollectorCls(
             rank=w.rank,
