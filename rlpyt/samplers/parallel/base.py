@@ -14,7 +14,7 @@ from rlpyt.samplers.parallel.worker import sampling_process
 from rlpyt.utils.logging import logger
 from rlpyt.utils.collections import AttrDict
 from rlpyt.utils.synchronize import drain_queue
-
+import numpy as np
 
 EVAL_TRAJ_CHECK = 0.1  # seconds.
 RELMOGEN_SPACES_PICKLE = '/cvgl2/u/chengshu/rlpyt/rlpyt/envs/relmogen_gibson_draw_path_base_orn_num_bins_12_base_and_arm_spaces_dict.pickle'
@@ -131,6 +131,12 @@ class ParallelSamplerBase(BaseSampler):
         workers_kwargs = self._assemble_workers_kwargs(
             affinity, seed, n_envs_list)
 
+        self.itr = 0
+        c = AttrDict(**common_kwargs)
+        env_len = len(c.env_kwargs['scene_names'])
+        self.index_list = np.arange(env_len)
+        np.random.shuffle(self.index_list)
+
         # self.train_n_envs = self.n_worker - self.eval_n_envs
         # for i in range(self.train_n_envs):
         #     workers_kwargs[i]["n_envs"] = 1
@@ -142,8 +148,8 @@ class ParallelSamplerBase(BaseSampler):
 
         target = sampling_process if worker_process is None else worker_process
         self.workers = [mp.Process(target=target,
-                                   kwargs=dict(common_kwargs=common_kwargs, worker_kwargs=w_kwargs))
-                        for w_kwargs in workers_kwargs]
+                                   kwargs=dict(common_kwargs=common_kwargs, worker_kwargs=w_kwargs, index=self.index_list[(self.itr * global_B + i) % env_len]))
+                        for i, w_kwargs in enumerate(workers_kwargs)]
         for w in self.workers:
             w.start()
 
@@ -151,6 +157,42 @@ class ParallelSamplerBase(BaseSampler):
         self.ctrl.barrier_out.wait()
 
         return examples  # e.g. In case useful to build replay buffer.
+
+    def refresh(
+            self,
+            affinity,
+            seed,
+            bootstrap_value=False,
+            traj_info_kwargs=None,
+            worker_process=None,
+    ):
+        self.shutdown()
+        
+        self.ctrl.quit.value = False
+        n_envs_list = self._get_n_envs_list(affinity=affinity)
+        B = self.batch_spec.B
+        global_B = B * self.world_size
+        env_ranks = list(range(self.rank * B, (self.rank + 1) * B))
+
+        common_kwargs = self._assemble_common_kwargs(affinity, global_B)
+        workers_kwargs = self._assemble_workers_kwargs(
+            affinity, seed, n_envs_list)
+
+        self.itr += 1
+        c = AttrDict(**common_kwargs)
+        env_len = len(c.env_kwargs['scene_names'])
+        if self.itr % 5 == 0:
+            np.random.shuffle(self.index_list)
+
+        target = sampling_process if worker_process is None else worker_process
+        self.workers = [mp.Process(target=target,
+                                   kwargs=dict(common_kwargs=common_kwargs, worker_kwargs=w_kwargs, index=self.index_list[(self.itr * global_B + i) % env_len]))
+                        for i, w_kwargs in enumerate(workers_kwargs)]
+        for w in self.workers:
+            w.start()
+
+        # Wait for workers ready (e.g. decorrelate).
+        self.ctrl.barrier_out.wait()
 
     def obtain_samples(self, itr):
         """Signal worker processes to collect samples, and wait until they

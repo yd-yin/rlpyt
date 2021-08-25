@@ -252,6 +252,14 @@ class MinibatchRl(MinibatchRlBase):
         n_itr = self.startup()
         for itr in range(n_itr):
             logger.set_iteration(itr)
+            if itr != 0:
+                self.seed += 1
+                self.sampler.refresh(            
+                    affinity=self.affinity,
+                    seed=self.seed + 1,
+                    bootstrap_value=getattr(self.algo, "bootstrap_value", False),
+                    traj_info_kwargs=self.get_traj_info_kwargs(),
+                )
             with logger.prefix(f"itr #{itr} "):
                 self.agent.sample_mode(itr)  # Might not be this agent sampling.
                 samples, traj_infos = self.sampler.obtain_samples(itr)

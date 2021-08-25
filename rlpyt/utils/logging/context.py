@@ -10,7 +10,7 @@ except ImportError:
 
 from rlpyt.utils.logging import logger
 
-LOG_DIR = osp.abspath(osp.join(osp.dirname(__file__), '../../../data'))
+LOG_DIR = osp.abspath('/apdcephfs/private_qihangfang/results')
 
 
 def get_log_dir(experiment_name, root_log_dir=None, date=True):

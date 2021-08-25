@@ -35,7 +35,7 @@ def initialize_worker(rank, seed=None, cpu=None, torch_threads=None):
     logger.log(log_str)
 
 
-def sampling_process(common_kwargs, worker_kwargs):
+def sampling_process(common_kwargs, worker_kwargs, index=None):
     """Target function used for forking parallel worker processes in the
     samplers. After ``initialize_worker()``, it creates the specified number
     of environment instances and gives them to the collector when
@@ -66,7 +66,10 @@ def sampling_process(common_kwargs, worker_kwargs):
             scene_idx = w.rank % env_len
         else:
             print('\nThe batch_B is smaller than #training_envs, random select a training_env for each process\n')
-            scene_idx = np.random.randint(env_len)
+            #scene_idx = np.random.randint(env_len)
+            scene_idx = index
+
+
         envs = [c.EnvCls(**c.env_kwargs, scene_idx=scene_idx) for _ in range(w.n_envs)]
         # print('length of envs:', len(envs))     # always equals to 1
         # print('Env:', envs[0].scene_dir)        # indicating the scene in current subprocess
@@ -85,6 +88,8 @@ def sampling_process(common_kwargs, worker_kwargs):
         )
         agent_inputs, traj_infos = collector.start_envs(c.max_decorrelation_steps)
         collector.start_agent()
+        
+
     else:
         envs = []
         collector = None
@@ -102,6 +107,7 @@ def sampling_process(common_kwargs, worker_kwargs):
             sync=w.get("sync", None),
             step_buffer_np=w.get("eval_step_buffer_np", None),
         )
+
     else:
         eval_envs = list()
         eval_collector = None

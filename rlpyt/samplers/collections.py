@@ -14,6 +14,17 @@ EnvSamples = namedarraytuple("EnvSamples",
                              ["observation", "reward", "prev_reward", "done", "env_info"])
 
 
+CONAgentSamples = namedarraytuple("AgentSamples",
+                               ["action", "agent_info", "feature"])
+CONAgentSamplesBsv = namedarraytuple("AgentSamplesBsv",
+                                  ["action", "agent_info", "feature", "bootstrap_value"])
+CONEnvSamples = namedarraytuple("EnvSamples",
+                             ["observation", "reward", "done", "env_info"])
+
+
+
+
+
 class BatchSpec(namedtuple("BatchSpec", "T B")):
     """
     T: int  Number of time steps, >=1.
